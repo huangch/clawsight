@@ -62,7 +62,7 @@ else
 fi
 
 # Build the MCP server command
-MCP_CMD="wsinsight-mcp --http 0.0.0.0:${MCP_PORT}"
+MCP_CMD="pip install -q 'wsinsight[mcp]' && wsinsight-mcp --http 0.0.0.0:${MCP_PORT}"
 [ "$EXPERIMENTAL" = true ]   && MCP_CMD="${MCP_CMD} --experimental"
 [ -n "$MAX_CONCURRENT" ]     && MCP_CMD="${MCP_CMD} --max-concurrent ${MAX_CONCURRENT}"
 
