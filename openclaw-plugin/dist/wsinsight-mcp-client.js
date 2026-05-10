@@ -9,11 +9,8 @@
 //   Response is either plain JSON or SSE (text/event-stream).
 //   For SSE: split on newlines, last "data: {...}" line is the result.
 //
-// Docker management uses Node's child_process.execFile so no shell injection
-// is possible (arguments are passed as an array, never concatenated).
-import { execFile as _execFile } from "node:child_process";
-import { promisify } from "node:util";
-const execFile = promisify(_execFile);
+// Docker lifecycle (start/stop) is managed externally via the shell scripts
+// start-wsinsight.sh / stop-wsinsight.sh shipped alongside this plugin.
 export class WsInsightMcpClient {
     mcpUrl;
     timeoutMs;
@@ -163,23 +160,6 @@ export class WsInsightMcpClient {
     reset() {
         this.sessionId = null;
         this.msgId = 0;
-    }
-    // -------------------------------------------------------------------------
-    // Docker helpers (array-based execFile — no shell injection risk)
-    // -------------------------------------------------------------------------
-    static async dockerRun(args) {
-        const { stdout, stderr } = await execFile("docker", args, {
-            timeout: 120_000,
-        });
-        return stdout.trim() || stderr.trim();
-    }
-    static async dockerRunIgnoreError(args) {
-        try {
-            await execFile("docker", args, { timeout: 30_000 });
-        }
-        catch {
-            // expected when container doesn't exist yet
-        }
     }
     // -------------------------------------------------------------------------
     // Response helper

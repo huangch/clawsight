@@ -1,7 +1,6 @@
 import { Type } from "@sinclair/typebox";
 import { WsInsightMcpClient } from "./wsinsight-mcp-client.js";
 
-const DOCKER_IMAGE  = "huangchtw/wsinsight:latest";
 const DEFAULT_PORT  = 8765;
 const DEFAULT_CNAME = "clawsight-mcp";
 
@@ -46,7 +45,7 @@ export default function register(api: unknown) {
         msg.includes("timeout");
       const body = connErr
         ? `[ERROR] Cannot reach WSInsight MCP server at ${mcpUrl}.\n` +
-          "Ensure the Docker container is running (wsinsight_start_docker) " +
+          "Ensure the Docker container is running (use start-wsinsight.sh) " +
           "and call wsinsight_connect to verify."
         : `[ERROR] MCP call '${toolName}' failed: ${err}`;
       return WsInsightMcpClient.asText(toolName, body);
@@ -126,155 +125,6 @@ export default function register(api: unknown) {
           return WsInsightMcpClient.asText(
             "Connection failed",
             `[ERROR] ${err}\nURL: ${mcpUrl}\nIs the container running?`,
-          );
-        }
-      },
-    },
-    OPT,
-  );
-
-  // ── wsinsight_start_docker ────────────────────────────────────────────────
-  a.registerTool(
-    {
-      name: "wsinsight_start_docker",
-      description:
-        `Start the WSInsight Docker container (${DOCKER_IMAGE}) ` +
-        "with the MCP HTTP server inside. " +
-        "data_dir is mounted as /workspace — all file paths in pipeline " +
-        "'arguments' must be relative to that mount. " +
-        "Any existing container with the same name is stopped first. " +
-        "Returns the container ID and MCP URL; wait ~5 s then call wsinsight_connect.",
-      parameters: Type.Object({
-        data_dir: Type.String({
-          description:
-            "Absolute host path mounted as /workspace inside the container. Required.",
-        }),
-        gpu_ids: Type.Optional(
-          Type.String({
-            description:
-              "Comma-separated GPU IDs to expose (e.g. '0' or '0,1'). Default: all.",
-          }),
-        ),
-        mcp_port: Type.Optional(
-          Type.Number({
-            description: `Host port for the MCP server. Default: ${DEFAULT_PORT}.`,
-            minimum: 1024,
-            maximum: 65535,
-          }),
-        ),
-        container_name: Type.Optional(
-          Type.String({
-            description: `Docker container name. Default: ${DEFAULT_CNAME}.`,
-          }),
-        ),
-        max_concurrent: Type.Optional(
-          Type.Number({
-            description: "Max concurrent GPU jobs. Default: auto (= GPU count).",
-            minimum: 1,
-          }),
-        ),
-        experimental: Type.Optional(
-          Type.Boolean({
-            description:
-              "Enable experimental tools (hplot, ecomp, tcomp, cme). Default: false.",
-          }),
-        ),
-      }),
-      async execute(_id: string, params: Record<string, unknown>) {
-        console.log("Tool execution:", { name: "wsinsight_start_docker", params, _id });
-
-        const dataDir = String(params.data_dir ?? "").trim();
-        if (!dataDir) {
-          return WsInsightMcpClient.asText(
-            "wsinsight_start_docker",
-            "[ERROR] 'data_dir' is required",
-          );
-        }
-
-        const gpuIds = typeof params.gpu_ids === "string" ? params.gpu_ids.trim() : "";
-        const port   = typeof params.mcp_port === "number" ? params.mcp_port : DEFAULT_PORT;
-        const cn     =
-          typeof params.container_name === "string"
-            ? params.container_name.trim()
-            : cname;
-        const maxC       = typeof params.max_concurrent === "number" ? params.max_concurrent : null;
-        const expFlag    = params.experimental === true;
-        const gpuFlag    = gpuIds ? `device=${gpuIds}` : "all";
-
-        // Remove existing container (ignore errors)
-        await WsInsightMcpClient.dockerRunIgnoreError(["stop", cn]);
-        await WsInsightMcpClient.dockerRunIgnoreError(["rm",   cn]);
-
-        let mcpCmd = `wsinsight-mcp --http 0.0.0.0:${port}`;
-        if (expFlag)   mcpCmd += " --experimental";
-        if (maxC !== null) mcpCmd += ` --max-concurrent ${maxC}`;
-
-        try {
-          const cid = await WsInsightMcpClient.dockerRun([
-            "run", "-d",
-            "--name", cn,
-            "--gpus", gpuFlag,
-            "--shm-size=32g",
-            "--init",
-            "-p", `${port}:${port}`,
-            "-v", `${dataDir}:/workspace`,
-            DOCKER_IMAGE,
-            "bash", "-lc", mcpCmd,
-          ]);
-
-          cname = cn;
-          rebuildClient(`http://127.0.0.1:${port}/mcp`);
-
-          const body = [
-            `Container: ${cn} (${cid.slice(0, 12)})`,
-            `MCP URL:   ${mcpUrl}`,
-            `Data:      ${dataDir} → /workspace`,
-            `GPUs:      ${gpuFlag}`,
-            "",
-            "Wait ~5 seconds, then call wsinsight_connect to verify.",
-          ].join("\n");
-          return WsInsightMcpClient.asText("Container started", body);
-        } catch (err) {
-          return WsInsightMcpClient.asText(
-            "wsinsight_start_docker",
-            `[ERROR] docker run failed: ${err}`,
-          );
-        }
-      },
-    },
-    OPT,
-  );
-
-  // ── wsinsight_stop_docker ─────────────────────────────────────────────────
-  a.registerTool(
-    {
-      name: "wsinsight_stop_docker",
-      description:
-        "Stop and remove the WSInsight MCP Docker container. " +
-        "All running jobs inside will be terminated.",
-      parameters: Type.Object({
-        container_name: Type.Optional(
-          Type.String({ description: "Container name to stop. Default: clawsight-mcp." }),
-        ),
-      }),
-      async execute(_id: string, params: Record<string, unknown>) {
-        console.log("Tool execution:", { name: "wsinsight_stop_docker", params, _id });
-        const cn =
-          typeof params.container_name === "string"
-            ? params.container_name.trim()
-            : cname;
-        try {
-          await WsInsightMcpClient.dockerRunIgnoreError(["stop", cn]);
-          await WsInsightMcpClient.dockerRunIgnoreError(["rm",   cn]);
-          client.reset();
-          return WsInsightMcpClient.asText(
-            "wsinsight_stop_docker",
-            `Container '${cn}' stopped and removed.`,
-          );
-        } catch (err) {
-          return WsInsightMcpClient.asText(
-            "wsinsight_stop_docker",
-            `[WARN] ${err}`,
           );
         }
       },
