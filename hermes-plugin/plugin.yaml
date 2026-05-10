@@ -1,0 +1,23 @@
+name: clawsight
+version: 1.0.0
+description: >
+  WSInsight whole-slide pathology AI — run tissue segmentation, GPU inference,
+  spatial graph analytics, and GeoJSON/OME-CSV export via the WSInsight MCP
+  server in a Docker container.
+author: clawsight contributors
+provides_tools:
+  - wsinsight_server_info
+  - wsinsight_connect
+  - wsinsight_start_docker
+  - wsinsight_stop_docker
+  - wsinsight_list_tools
+  - wsinsight_run
+  - wsinsight_patch
+  - wsinsight_infer
+  - wsinsight_ncomp
+  - wsinsight_export
+  - wsinsight_reg
+  - wsinsight_job_status
+  - wsinsight_job_logs
+  - wsinsight_cancel_job
+  - wsinsight_list_jobs

@@ -1,0 +1,24 @@
+{
+  "id": "clawsight",
+  "name": "ClawSight",
+  "description": "WSInsight whole-slide pathology AI via Docker MCP server — tissue segmentation, GPU inference, spatial analytics, and export",
+  "skills": ["skills/clawsight"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "mcpUrl": {
+        "type": "string",
+        "description": "WSInsight MCP endpoint URL. Default: http://127.0.0.1:8765/mcp"
+      },
+      "timeoutMs": {
+        "type": "number",
+        "description": "Request timeout in milliseconds. Default: 300000 (5 minutes)."
+      },
+      "containerName": {
+        "type": "string",
+        "description": "Default Docker container name. Default: clawsight-mcp."
+      }
+    }
+  }
+}

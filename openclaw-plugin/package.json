@@ -1,0 +1,27 @@
+{
+  "name": "clawsight",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "openclaw": {
+    "compat": {
+      "pluginApi": "0.1.0"
+    },
+    "build": {
+      "openclawVersion": "0.1.0"
+    },
+    "extensions": [
+      "./dist/index.js"
+    ]
+  },
+  "dependencies": {
+    "@sinclair/typebox": "^0.34.49",
+    "typescript": "^5.9.3"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0"
+  }
+}
