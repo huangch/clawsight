@@ -4,10 +4,16 @@ import { WsInsightMcpClient } from "./wsinsight-mcp-client.js";
 const DEFAULT_PORT  = 8765;
 const DEFAULT_CNAME = "clawsight-mcp";
 
+const SPTX_DEFAULT_PORT  = 8766;
+const SPTX_DEFAULT_CNAME = "clawsight-sptx-mcp";
+
 type PluginConfig = {
   mcpUrl?:        string;
   timeoutMs?:     number;
   containerName?: string;
+  sptxMcpUrl?:        string;
+  sptxTimeoutMs?:     number;
+  sptxContainerName?: string;
 };
 
 export default function register(api: unknown) {
@@ -19,6 +25,13 @@ export default function register(api: unknown) {
   let cname     = cfg.containerName ?? DEFAULT_CNAME;
   let client    = new WsInsightMcpClient(mcpUrl, timeoutMs);
 
+  // Second, independent connection to the sptxinsight MCP server (separate
+  // container, default port 8766). The MCP client class is endpoint-agnostic.
+  let sptxMcpUrl    = cfg.sptxMcpUrl        ?? `http://127.0.0.1:${SPTX_DEFAULT_PORT}/mcp`;
+  let sptxTimeoutMs = cfg.sptxTimeoutMs     ?? 300_000;
+  let sptxCname     = cfg.sptxContainerName ?? SPTX_DEFAULT_CNAME;
+  let sptxClient    = new WsInsightMcpClient(sptxMcpUrl, sptxTimeoutMs);
+
   const a = api as {
     registerTool: (def: object, opts?: object) => void;
   };
@@ -27,6 +40,11 @@ export default function register(api: unknown) {
   function rebuildClient(newUrl?: string): void {
     if (newUrl) mcpUrl = newUrl;
     client = new WsInsightMcpClient(mcpUrl, timeoutMs);
+  }
+
+  function rebuildSptxClient(newUrl?: string): void {
+    if (newUrl) sptxMcpUrl = newUrl;
+    sptxClient = new WsInsightMcpClient(sptxMcpUrl, sptxTimeoutMs);
   }
 
   async function proxy(
@@ -47,6 +65,29 @@ export default function register(api: unknown) {
         ? `[ERROR] Cannot reach WSInsight MCP server at ${mcpUrl}.\n` +
           "Ensure the Docker container is running (use start-wsinsight.sh) " +
           "and call wsinsight_connect to verify."
+        : `[ERROR] MCP call '${toolName}' failed: ${err}`;
+      return WsInsightMcpClient.asText(toolName, body);
+    }
+  }
+
+  async function sptxProxy(
+    toolName: string,
+    args: Record<string, unknown>,
+  ): Promise<unknown> {
+    try {
+      const text = await sptxClient.callTool(toolName, args);
+      return WsInsightMcpClient.asText(toolName, text);
+    } catch (err) {
+      sptxClient.reset();
+      const msg = String(err).toLowerCase();
+      const connErr =
+        msg.includes("connect") ||
+        msg.includes("refused") ||
+        msg.includes("timeout");
+      const body = connErr
+        ? `[ERROR] Cannot reach sptxinsight MCP server at ${sptxMcpUrl}.\n` +
+          "Ensure the Docker container is running (use start-sptxinsight.sh) " +
+          "and call sptx_connect to verify."
         : `[ERROR] MCP call '${toolName}' failed: ${err}`;
       return WsInsightMcpClient.asText(toolName, body);
     }

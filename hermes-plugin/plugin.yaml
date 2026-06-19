@@ -1,9 +1,11 @@
 name: clawsight
 version: 1.0.0
 description: >
-  WSInsight whole-slide pathology AI — run tissue segmentation, GPU inference,
-  spatial graph analytics, and GeoJSON/OME-CSV export via the WSInsight MCP
-  server in a Docker container.
+  WSInsight + sptxinsight pathology & spatial-transcriptomics AI. Run
+  whole-slide tissue segmentation, GPU inference, spatial graph analytics and
+  GeoJSON/OME-CSV export via the WSInsight MCP server, and cell-typing / CME
+  niche discovery / H-Plot / CCI via the sptxinsight MCP server. Each backend
+  runs in its own Docker container (wsinsight_* and sptx_* tools).
 author: clawsight contributors
 provides_tools:
   - wsinsight_server_info
@@ -21,3 +23,21 @@ provides_tools:
   - wsinsight_job_logs
   - wsinsight_cancel_job
   - wsinsight_list_jobs
+  - sptx_server_info
+  - sptx_connect
+  - sptx_start_docker
+  - sptx_stop_docker
+  - sptx_list_tools
+  - sptx_run
+  - sptx_ingest
+  - sptx_annotate
+  - sptx_export
+  - sptx_cme
+  - sptx_cme_profile
+  - sptx_hplot
+  - sptx_hplot_finalize
+  - sptx_cci
+  - sptx_job_status
+  - sptx_job_logs
+  - sptx_cancel_job
+  - sptx_list_jobs
