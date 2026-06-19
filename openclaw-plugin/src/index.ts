@@ -400,4 +400,325 @@ export default function register(api: unknown) {
     },
     OPT,
   );
+
+  // ===========================================================================
+  // sptxinsight tools — proxied to a SEPARATE sptxinsight MCP server / container
+  // ===========================================================================
+
+  // ── sptx_server_info ───────────────────────────────────────────────────────
+  a.registerTool(
+    {
+      name: "sptx_server_info",
+      description:
+        "Show the current sptxinsight ClawSight configuration: MCP endpoint URL, " +
+        "container name, request timeout, and whether a session is active. " +
+        "The sptxinsight server is separate from the wsinsight one (default port 8766).",
+      parameters: Type.Object({}),
+      async execute(_id: string) {
+        console.log("Tool execution:", { name: "sptx_server_info", _id });
+        const info = {
+          mcp_url:        sptxMcpUrl,
+          container_name: sptxCname,
+          timeout_ms:     sptxTimeoutMs,
+          session_active: (sptxClient as unknown as { sessionId: string | null })
+            .sessionId !== null,
+        };
+        return WsInsightMcpClient.asText(
+          "sptx_server_info",
+          JSON.stringify(info, null, 2),
+        );
+      },
+    },
+    OPT,
+  );
+
+  // ── sptx_connect ───────────────────────────────────────────────────────────
+  a.registerTool(
+    {
+      name: "sptx_connect",
+      description:
+        "Connect to a running sptxinsight MCP server and verify it is reachable. " +
+        "Performs the MCP initialize handshake and returns server name, version, " +
+        "and protocol version on success. " +
+        "Optionally override the MCP URL or timeout.",
+      parameters: Type.Object({
+        mcp_url: Type.Optional(
+          Type.String({
+            description:
+              "MCP endpoint URL (e.g. http://127.0.0.1:8766/mcp). " +
+              "Overrides the current URL for this and all future calls.",
+          }),
+        ),
+        timeout_ms: Type.Optional(
+          Type.Number({ description: "Request timeout in ms (default: 300000)." }),
+        ),
+      }),
+      async execute(_id: string, params: Record<string, unknown>) {
+        console.log("Tool execution:", { name: "sptx_connect", params, _id });
+        if (typeof params.mcp_url === "string") {
+          rebuildSptxClient(params.mcp_url);
+        }
+        if (typeof params.timeout_ms === "number") {
+          sptxTimeoutMs = params.timeout_ms;
+          rebuildSptxClient();
+        }
+        try {
+          const init   = await sptxClient.initialize();
+          const result = (init["result"] as Record<string, unknown>) ?? {};
+          const si     = (result["serverInfo"] as Record<string, unknown>) ?? {};
+          const pv     = result["protocolVersion"] ?? "?";
+          const body   = [
+            `URL:      ${sptxMcpUrl}`,
+            `Server:   ${si["name"] ?? "?"} v${si["version"] ?? "?"}`,
+            `Protocol: ${pv}`,
+          ].join("\n");
+          return WsInsightMcpClient.asText("Connected", body);
+        } catch (err) {
+          sptxClient.reset();
+          return WsInsightMcpClient.asText(
+            "Connection failed",
+            `[ERROR] ${err}\nURL: ${sptxMcpUrl}\nIs the container running?`,
+          );
+        }
+      },
+    },
+    OPT,
+  );
+
+  // ── sptx_list_tools ────────────────────────────────────────────────────────
+  a.registerTool(
+    {
+      name: "sptx_list_tools",
+      description:
+        "List all tools available on the sptxinsight MCP server with their " +
+        "parameter names, types, and required fields. " +
+        "Always call this before sptx pipeline tools to know what to put in 'arguments'.",
+      parameters: Type.Object({}),
+      async execute(_id: string) {
+        console.log("Tool execution:", { name: "sptx_list_tools", _id });
+        try {
+          const tools = await sptxClient.listTools();
+          if (!tools.length) {
+            return WsInsightMcpClient.asText(
+              "sptx_list_tools",
+              "No tools found. Is the server running? Call sptx_connect first.",
+            );
+          }
+          const lines = [`sptxinsight MCP tools (${tools.length}):\n`];
+          for (const t of tools) {
+            const name   = String(t["name"] ?? "");
+            const desc   = String(t["description"] ?? "").split("\n")[0].slice(0, 110);
+            const schema = (t["inputSchema"] as Record<string, unknown>) ?? {};
+            const props  = Object.keys(
+              (schema["properties"] as Record<string, unknown>) ?? {},
+            );
+            const req    = new Set(
+              (schema["required"] as string[] | undefined) ?? [],
+            );
+            const ps     = props.map((k) => (req.has(k) ? `${k}*` : k)).join(", ");
+            lines.push(`  ${name}`, `    ${desc}`);
+            if (ps) lines.push(`    params: ${ps}  (* = required)`);
+            lines.push("");
+          }
+          return WsInsightMcpClient.asText("sptx_list_tools", lines.join("\n"));
+        } catch (err) {
+          sptxClient.reset();
+          return WsInsightMcpClient.asText(
+            "sptx_list_tools",
+            `[ERROR] ${err}`,
+          );
+        }
+      },
+    },
+    OPT,
+  );
+
+  // ── sptx pipeline tools ─────────────────────────────────────────────────────
+  const SptxArgsParam = Type.Optional(
+    Type.Object(
+      {},
+      {
+        additionalProperties: true,
+        description:
+          "sptxinsight command arguments as a JSON object. " +
+          "Call sptx_list_tools to discover parameter names and types.",
+      },
+    ),
+  );
+
+  const sptxPipelineTools: PipelineTool[] = [
+    {
+      toolName: "run",
+      desc:
+        "Run the full sptxinsight spatial-transcriptomics pipeline " +
+        "(ingest → annotate → CME niche discovery). " +
+        "Returns job_id immediately; poll sptx_job_status for progress.",
+      isAsync: true,
+    },
+    {
+      toolName: "ingest",
+      desc:
+        "Ingest spatial-transcriptomics samples into per-cell CSVs. " +
+        "Returns job_id immediately.",
+      isAsync: true,
+    },
+    {
+      toolName: "annotate",
+      desc:
+        "Assign cell types to ingested spatial samples. " +
+        "Returns job_id immediately.",
+      isAsync: true,
+    },
+    {
+      toolName: "export",
+      desc:
+        "Export sptxinsight results (niche / composition tables) to disk. " +
+        "Runs synchronously.",
+      isAsync: false,
+    },
+    {
+      toolName: "cme",
+      desc:
+        "Discover cellular-microenvironment (CME) niches via a graph autoencoder " +
+        "on the spatial cell graph. GPU, long-running; returns job_id immediately.",
+      isAsync: true,
+    },
+    {
+      toolName: "cme_profile",
+      desc:
+        "Profile / summarise CME niches produced by sptx_cme. Runs synchronously.",
+      isAsync: false,
+    },
+    {
+      toolName: "hplot",
+      desc:
+        "Experimental: run H-Plot spatial-heterogeneity analysis over ingested CSVs " +
+        "(requires the server started with experimental tools enabled). " +
+        "Long-running; returns job_id.",
+      isAsync: true,
+    },
+    {
+      toolName: "hplot_finalize",
+      desc:
+        "Experimental: aggregate / finalize H-Plot outputs. Runs synchronously.",
+      isAsync: false,
+    },
+    {
+      toolName: "cci",
+      desc:
+        "Experimental: compute cell-cell interaction (CCI) scores over the spatial " +
+        "graph (requires experimental tools enabled). Long-running; returns job_id.",
+      isAsync: true,
+    },
+  ];
+
+  for (const { toolName, desc, isAsync } of sptxPipelineTools) {
+    const tn = toolName; // capture for closure
+    a.registerTool(
+      {
+        name: `sptx_${tn}`,
+        description:
+          `${desc} ` +
+          "File paths in 'arguments' must be relative to /workspace (= data_dir). " +
+          "Call sptx_list_tools to discover exact parameter names." +
+          (isAsync ? " Poll status with sptx_job_status." : ""),
+        parameters: Type.Object({ arguments: SptxArgsParam }),
+        async execute(_id: string, params: Record<string, unknown>) {
+          console.log("Tool execution:", { name: `sptx_${tn}`, params, _id });
+          const args =
+            (params.arguments as Record<string, unknown> | undefined) ?? {};
+          return sptxProxy(tn, args);
+        },
+      },
+      OPT,
+    );
+  }
+
+  // ── sptx job management ──────────────────────────────────────────────────────
+  a.registerTool(
+    {
+      name: "sptx_job_status",
+      description:
+        "Poll the status of a background sptxinsight job. " +
+        "Returns status (pending / running / done / failed / cancelled), " +
+        "elapsed time, and a progress snippet. " +
+        "Call this repeatedly after a pipeline tool until status is 'done' or 'failed'.",
+      parameters: Type.Object({
+        job_id: Type.String({
+          description: "Job ID returned by a sptx pipeline tool.",
+        }),
+      }),
+      async execute(_id: string, params: Record<string, unknown>) {
+        console.log("Tool execution:", { name: "sptx_job_status", params, _id });
+        return sptxProxy("job_status", { job_id: params.job_id });
+      },
+    },
+    OPT,
+  );
+
+  a.registerTool(
+    {
+      name: "sptx_job_logs",
+      description:
+        "Retrieve a chunk of stdout/stderr log lines from a background sptxinsight " +
+        "job. Returns { lines, next_line, total }; pass since_line=next_line from " +
+        "the previous response to paginate forward through the log.",
+      parameters: Type.Object({
+        job_id: Type.String({ description: "Job ID." }),
+        since_line: Type.Optional(
+          Type.Number({
+            description:
+              "0-based line offset to start reading from (default: 0). " +
+              "Use next_line from a prior response to paginate forward.",
+            minimum: 0,
+          }),
+        ),
+        max_lines: Type.Optional(
+          Type.Number({
+            description: "Maximum number of lines to return (default: 500).",
+            minimum: 1,
+            maximum: 4000,
+          }),
+        ),
+      }),
+      async execute(_id: string, params: Record<string, unknown>) {
+        console.log("Tool execution:", { name: "sptx_job_logs", params, _id });
+        const args: Record<string, unknown> = { job_id: params.job_id };
+        if (typeof params.since_line === "number") args["since_line"] = params.since_line;
+        if (typeof params.max_lines === "number") args["max_lines"] = params.max_lines;
+        return sptxProxy("job_logs", args);
+      },
+    },
+    OPT,
+  );
+
+  a.registerTool(
+    {
+      name: "sptx_cancel_job",
+      description: "Cancel a running or pending sptxinsight background job by job_id.",
+      parameters: Type.Object({
+        job_id: Type.String({ description: "Job ID to cancel." }),
+      }),
+      async execute(_id: string, params: Record<string, unknown>) {
+        console.log("Tool execution:", { name: "sptx_cancel_job", params, _id });
+        return sptxProxy("cancel_job", { job_id: params.job_id });
+      },
+    },
+    OPT,
+  );
+
+  a.registerTool(
+    {
+      name: "sptx_list_jobs",
+      description:
+        "List all sptxinsight background jobs (running, pending, done, failed, cancelled) " +
+        "with job_id, command, status, and elapsed time.",
+      parameters: Type.Object({}),
+      async execute(_id: string) {
+        console.log("Tool execution:", { name: "sptx_list_jobs", _id });
+        return sptxProxy("list_jobs", {});
+      },
+    },
+    OPT,
+  );
 }

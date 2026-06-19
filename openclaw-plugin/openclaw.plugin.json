@@ -1,7 +1,7 @@
 {
   "id": "clawsight",
   "name": "ClawSight",
-  "description": "WSInsight whole-slide pathology AI via Docker MCP server — tissue segmentation, GPU inference, spatial analytics, and export",
+  "description": "WSInsight + sptxinsight pathology & spatial-transcriptomics AI via Docker MCP servers — tissue segmentation, GPU inference, spatial analytics, cell typing, CME niche discovery, and export",
   "skills": ["skills/clawsight"],
   "configSchema": {
     "type": "object",
@@ -17,7 +17,19 @@
       },
       "containerName": {
         "type": "string",
-        "description": "Default Docker container name. Default: clawsight-mcp."
+        "description": "Default WSInsight Docker container name. Default: clawsight-mcp."
+      },
+      "sptxMcpUrl": {
+        "type": "string",
+        "description": "sptxinsight MCP endpoint URL. Default: http://127.0.0.1:8766/mcp"
+      },
+      "sptxTimeoutMs": {
+        "type": "number",
+        "description": "sptxinsight request timeout in milliseconds. Default: 300000 (5 minutes)."
+      },
+      "sptxContainerName": {
+        "type": "string",
+        "description": "Default sptxinsight Docker container name. Default: clawsight-sptx-mcp."
       }
     }
   }
