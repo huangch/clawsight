@@ -10,7 +10,7 @@
 #   -p <port>            MCP HTTP port (host and container). Default: 8765.
 #   -n <name>            Docker container name. Default: clawsight-mcp.
 #   -c <max_concurrent>  Max concurrent GPU jobs. Default: auto (= GPU count).
-#   -e                   Enable experimental tools (hplot/ecomp/tcomp/cme).
+#   -e                   Enable experimental tools (hplot/ecomp/tcomp/cme/cme-profile).
 #   -h                   Show this help and exit.
 set -euo pipefail
 

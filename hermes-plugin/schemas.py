@@ -108,7 +108,7 @@ WSINSIGHT_START_DOCKER = {
                 "type": "boolean",
                 "description": (
                     "Expose experimental WSInsight tools "
-                    "(hplot, hplot-finalize, ecomp, tcomp, cme). Default: false."
+                    "(hplot, hplot-finalize, ecomp, tcomp, cme, cme-profile). Default: false."
                 ),
             },
         },

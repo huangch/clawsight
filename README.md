@@ -149,7 +149,7 @@ Usage: ./start-wsinsight.sh -d <data_dir> [options]
   -p <port>           MCP HTTP port. Default: 8765.
   -n <name>           Container name. Default: clawsight-mcp.
   -c <max_concurrent> Max concurrent GPU jobs. Default: auto (= GPU count).
-  -e                  Enable experimental tools (hplot/ecomp/tcomp/cme).
+  -e                  Enable experimental tools (hplot/ecomp/tcomp/cme/cme-profile).
   -h                  Show help and exit.
 ```
 
@@ -246,11 +246,12 @@ When the container is started with `-e` (`./start-wsinsight.sh -e -d /data`), ad
 
 | Tool | Description |
 |---|---|
-| `hplot` | H-plot computation |
+| `hplot` | H-plot computation (supports `--base-by` / `--target-by` `celltype` \| `cme` to plot a discovered niche across layers) |
 | `hplot-finalize` | Finalize H-plot output |
 | `ecomp` | Edge composition analysis |
 | `tcomp` | Triad composition analysis |
 | `cme` | Cellular microenvironment clustering |
+| `cme-profile` | Summarise each CME (niche) by its dominant cell types |
 
 These appear automatically in `wsinsight_list_tools` output when enabled — no plugin changes required.
 
