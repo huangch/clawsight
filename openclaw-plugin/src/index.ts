@@ -339,13 +339,22 @@ export default function register(api: unknown) {
     {
       name: "wsinsight_job_logs",
       description:
-        "Retrieve the last N stdout/stderr log lines from a background job. " +
-        "Default: 50 lines.",
+        "Retrieve a chunk of stdout/stderr log lines from a background job. " +
+        "Returns { lines, next_line, total }; pass since_line=next_line from " +
+        "the previous response to paginate forward through the log.",
       parameters: Type.Object({
         job_id: Type.String({ description: "Job ID." }),
-        tail: Type.Optional(
+        since_line: Type.Optional(
           Type.Number({
-            description: "Number of log lines to return (default: 50).",
+            description:
+              "0-based line offset to start reading from (default: 0). " +
+              "Use next_line from a prior response to paginate forward.",
+            minimum: 0,
+          }),
+        ),
+        max_lines: Type.Optional(
+          Type.Number({
+            description: "Maximum number of lines to return (default: 500).",
             minimum: 1,
             maximum: 4000,
           }),
@@ -354,7 +363,8 @@ export default function register(api: unknown) {
       async execute(_id: string, params: Record<string, unknown>) {
         console.log("Tool execution:", { name: "wsinsight_job_logs", params, _id });
         const args: Record<string, unknown> = { job_id: params.job_id };
-        if (typeof params.tail === "number") args["tail"] = params.tail;
+        if (typeof params.since_line === "number") args["since_line"] = params.since_line;
+        if (typeof params.max_lines === "number") args["max_lines"] = params.max_lines;
         return proxy("job_logs", args);
       },
     },
