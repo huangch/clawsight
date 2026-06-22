@@ -470,6 +470,9 @@ async def wsinsight_infer(params: dict, **_: Any) -> str:
 async def wsinsight_ncomp(params: dict, **_: Any) -> str:
     return await _proxy("ncomp", params)
 
+async def wsinsight_agg(params: dict, **_: Any) -> str:
+    return await _proxy("agg", params)
+
 async def wsinsight_export(params: dict, **_: Any) -> str:
     return await _proxy("export", params)
 

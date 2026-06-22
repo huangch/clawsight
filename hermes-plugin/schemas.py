@@ -215,6 +215,26 @@ WSINSIGHT_NCOMP = {
     },
 }
 
+WSINSIGHT_AGG = {
+    "name": "wsinsight_agg",
+    "description": (
+        "Detect cell-type aggregates (e.g. tertiary lymphoid structures) as "
+        "density-gated connected components of a chosen set of cell types. "
+        "Requires a prior wsinsight_infer (or wsinsight_run) so that "
+        "model-outputs-csv/ exists. Writes a namespaced membership column, a "
+        "per-aggregate sidecar CSV, and an agg/<name>/ group in the graph cache. "
+        "EXPERIMENTAL: only available when the MCP server was started with "
+        "experimental=true (wsinsight_start_docker experimental=true). "
+        "Returns a job_id immediately; poll wsinsight_job_status for progress. "
+        "Call wsinsight_list_tools to discover the exact parameter names."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": _ARGS_PROPERTY,
+        "required": ["arguments"],
+    },
+}
+
 WSINSIGHT_EXPORT = {
     "name": "wsinsight_export",
     "description": (

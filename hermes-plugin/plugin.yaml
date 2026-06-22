@@ -17,6 +17,7 @@ provides_tools:
   - wsinsight_patch
   - wsinsight_infer
   - wsinsight_ncomp
+  - wsinsight_agg
   - wsinsight_export
   - wsinsight_reg
   - wsinsight_job_status

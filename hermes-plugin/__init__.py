@@ -116,6 +116,11 @@ def register(ctx) -> None:
             _tools.wsinsight_ncomp,
         ),
         (
+            "wsinsight_agg",
+            schemas.WSINSIGHT_AGG,
+            _tools.wsinsight_agg,
+        ),
+        (
             "wsinsight_export",
             schemas.WSINSIGHT_EXPORT,
             _tools.wsinsight_export,
