@@ -47,11 +47,11 @@ Or run everything in one call with **wsinsight_run**.
   `tcomp`, `cme`. Poll `wsinsight_job_status` until `status` is `"done"`
   or `"error"`.
 - **Sync tools** (`export`, `reg`, and the experimental `hplot-finalize`,
-  `cme-profile`) block until completion and return output directly.
+  `cme-profile`, `import`) block until completion and return output directly.
 - If you get a connection error, call `wsinsight_connect` to re-establish the
   session (the server may have restarted or the container may have cycled).
 - **Experimental tools** (`hplot`, `hplot-finalize`, `ecomp`, `tcomp`, `cme`,
-  `cme-profile`) appear in `wsinsight_list_tools` only when the container was
+  `cme-profile`, `import`) appear in `wsinsight_list_tools` only when the container was
   started with `"experimental": true` (which sets `WSINSIGHT_EXPERIMENTAL=1` and
   launches the server with `--experimental`).
 
@@ -70,6 +70,7 @@ Or run everything in one call with **wsinsight_run**.
 | `wsinsight_ncomp`        | Pipeline   | async → job_id |
 | `wsinsight_export`       | Pipeline   | sync |
 | `wsinsight_reg`          | Pipeline   | sync |
+| `wsinsight_import`       | Spatial-omics | sync (experimental) |
 | `wsinsight_job_status`   | Job mgmt   | sync |
 | `wsinsight_job_logs`     | Job mgmt   | sync |
 | `wsinsight_cancel_job`   | Job mgmt   | sync |
@@ -127,6 +128,7 @@ Everything lands under the `results_dir` you passed (relative to `/workspace`):
   export-csv/<slide>.csv             Merged per-cell table (model + ncomp)
   export-geojson/<slide>.geojson     QuPath-compatible GeoJSON
   export-omecsv/<slide>.ome.csv.gz   QuPath / OMERO+ compatible OME-CSV
+  xenium-import/<sample_id>.h5ad     Xenium expression mapped onto cells (wsinsight import; experimental)
   patch_metadata_<ts>.json           Patch-stage configuration
   infer_metadata_<ts>.json           Inference-stage configuration
 ```
