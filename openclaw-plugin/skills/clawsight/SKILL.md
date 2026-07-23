@@ -133,6 +133,14 @@ Everything lands under the `results_dir` you passed (relative to `/workspace`):
   infer_metadata_<ts>.json           Inference-stage configuration
 ```
 
+`wsinsight_import` writes one AnnData `.h5ad` per sample: sparse Xenium gene
+expression in `X`, and each cell's matched `model-outputs-csv` detection copied
+into `obs` under a `model_` prefix (plus `model_cell_id`). The `model` source is
+always imported; pass `include` (e.g. `"cme,hplot,ncomp"`) to also merge those
+per-cell sidecars under their own `cme_` / `hplot_` / `ncomp_` prefixes (`hplot`
+contributes `hplot_distance_to_border`). Columns a sidecar echoes from the model
+output are not duplicated, and unmatched cells leave every merged field `NaN`.
+
 ### `model-outputs-csv/<slide>.csv` (per-cell or per-patch)
 
 Columns:
