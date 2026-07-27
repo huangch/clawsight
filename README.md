@@ -32,6 +32,8 @@ ClawSight exposes **15 tools** covering the full WSInsight pipeline:
 - `wsinsight_infer` — GPU model inference on pre-extracted patches
 - `wsinsight_ncomp` — per-cell Delaunay graph neighborhood composition
 
+All pipeline commands support `--overwrite` (`"overwrite": true` in JSON) to regenerate existing outputs instead of skipping slides that already have results.
+
 **Pipeline (synchronous):**
 - `wsinsight_export` — export results to GeoJSON or OME-CSV
 - `wsinsight_reg` — spatial registration of two WSI regions
@@ -263,12 +265,14 @@ When the container is started with `-e` (`./start-wsinsight.sh -e -d /data`), ad
 
 | Tool | Description |
 |---|---|
-| `hplot` | H-plot computation (supports `--base-by` / `--target-by` `celltype` \| `cme` to plot a discovered niche across layers) |
+| `hplot` | H-plot computation (supports `--base-by` / `--target-by` `celltype` \| `cme` \| `aggregate` to plot a discovered niche or aggregate across layers) |
 | `hplot-finalize` | Finalize H-plot output |
 | `ecomp` | Edge composition analysis |
 | `tcomp` | Triad composition analysis |
 | `cme` | Cellular microenvironment clustering |
 | `cme-profile` | Summarise each CME (niche) by its dominant cell types |
+| `agg` | Cell-type aggregate analysis (e.g. T+B cells → tertiary lymphoid structures) |
+| `import` | Import Xenium spatial-transcriptomics onto WSInsight cells |
 
 These appear automatically in `wsinsight_list_tools` output when enabled — no plugin changes required.
 

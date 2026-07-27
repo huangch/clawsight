@@ -51,7 +51,7 @@ Or run everything in one call with **wsinsight_run**.
 - If you get a connection error, call `wsinsight_connect` to re-establish the
   session (the server may have restarted or the container may have cycled).
 - **Experimental tools** (`hplot`, `hplot-finalize`, `ecomp`, `tcomp`, `cme`,
-  `cme-profile`, `import`) appear in `wsinsight_list_tools` only when the container was
+  `cme-profile`, `agg`, `import`) appear in `wsinsight_list_tools` only when the container was
   started with `"experimental": true` (which sets `WSINSIGHT_EXPERIMENTAL=1` and
   launches the server with `--experimental`).
 - **Memory-constrained environments** (containers, shared servers): if
