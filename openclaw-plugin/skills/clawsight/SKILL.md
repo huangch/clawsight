@@ -133,7 +133,7 @@ Everything lands under the `results_dir` you passed (relative to `/workspace`):
   export-csv/<slide>.csv             Merged per-cell table (model + ncomp)
   export-geojson/<slide>.geojson     QuPath-compatible GeoJSON
   export-omecsv/<slide>.ome.csv.gz   QuPath / OMERO+ compatible OME-CSV
-  xenium-import/<sample_id>.h5ad     Xenium expression mapped onto cells (wsinsight import; experimental)
+  imported-xenium/<sample_id>.h5ad     Xenium expression mapped onto cells (wsinsight import; experimental)
   patch_metadata_<ts>.json           Patch-stage configuration
   infer_metadata_<ts>.json           Inference-stage configuration
 ```
