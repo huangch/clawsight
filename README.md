@@ -214,6 +214,23 @@ Pipeline tools (`run`, `patch`, `infer`, `ncomp`, `export`, `reg`) accept a free
 
 All file paths inside `arguments` must be **relative to `/workspace`**, which is the `data_dir` you passed to `wsinsight_start_docker`.
 
+**Memory-constrained environments:**
+
+If DataLoader workers are killed by the system OOM killer (common in containers or shared servers), pass these arguments to `wsinsight_run` or `wsinsight_infer`:
+
+```json
+{
+  "wsi_dir": "/workspace/slides",
+  "results_dir": "/workspace/results",
+  "model": "CellViT-SAM-H-x40",
+  "pin_memory": false,
+  "num_workers": 2,
+  "batch_size": 16
+}
+```
+
+WSInsight also automatically recovers from worker death by disabling `pin_memory` and reducing `num_workers` on retry.
+
 ### Async job polling pattern
 
 Long-running tools return immediately:
