@@ -54,6 +54,11 @@ Or run everything in one call with **wsinsight_run**.
   `cme-profile`, `import`) appear in `wsinsight_list_tools` only when the container was
   started with `"experimental": true` (which sets `WSINSIGHT_EXPERIMENTAL=1` and
   launches the server with `--experimental`).
+- **Memory-constrained environments** (containers, shared servers): if
+  DataLoader workers are killed by the system OOM killer, pass
+  `"pin_memory": false` and optionally reduce `"num_workers": 2` and
+  `"batch_size": 16`. WSInsight also auto-recovers from worker death by
+  disabling `pin_memory` and reducing `num_workers` on retry.
 
 ## Tool reference
 
