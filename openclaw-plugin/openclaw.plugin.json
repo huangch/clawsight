@@ -1,7 +1,7 @@
 {
   "id": "clawsight",
   "name": "ClawSight",
-  "description": "WSInsight + sptxinsight pathology & spatial-transcriptomics AI via Docker MCP servers — tissue segmentation, GPU inference, spatial analytics, cell typing, CME niche discovery, and export",
+  "description": "WSInsight + sptxinsight pathology & spatial-transcriptomics AI via Docker MCP servers — tissue segmentation, GPU inference, spatial analytics, cell typing, niche discovery, and export",
   "skills": ["skills/clawsight"],
   "configSchema": {
     "type": "object",

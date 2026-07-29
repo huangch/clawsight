@@ -551,7 +551,7 @@ export default function register(api: unknown) {
       toolName: "run",
       desc:
         "Run the full sptxinsight spatial-transcriptomics pipeline " +
-        "(ingest → annotate → CME niche discovery). " +
+        "(ingest → annotate → niche discovery). " +
         "Returns job_id immediately; poll sptx_job_status for progress.",
       isAsync: true,
     },
@@ -577,16 +577,16 @@ export default function register(api: unknown) {
       isAsync: false,
     },
     {
-      toolName: "cme",
+      toolName: "niche",
       desc:
-        "Discover cellular-microenvironment (CME) niches via a graph autoencoder " +
+        "Discover niches via a graph autoencoder " +
         "on the spatial cell graph. GPU, long-running; returns job_id immediately.",
       isAsync: true,
     },
     {
-      toolName: "cme_profile",
+      toolName: "niche_profile",
       desc:
-        "Profile / summarise CME niches produced by sptx_cme. Runs synchronously.",
+        "Profile / summarise niches produced by sptx_niche. Runs synchronously.",
       isAsync: false,
     },
     {

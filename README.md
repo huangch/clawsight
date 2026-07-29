@@ -151,7 +151,7 @@ Usage: ./start-wsinsight.sh -d <data_dir> [options]
   -p <port>           MCP HTTP port. Default: 8765.
   -n <name>           Container name. Default: clawsight-mcp.
   -c <max_concurrent> Max concurrent GPU jobs. Default: auto (= GPU count).
-  -e                  Enable experimental tools (hplot/ecomp/tcomp/cme/cme-profile).
+  -e                  Enable experimental tools (hplot/ecomp/tcomp/niche/niche-profile).
   -h                  Show help and exit.
 ```
 
@@ -265,12 +265,12 @@ When the container is started with `-e` (`./start-wsinsight.sh -e -d /data`), ad
 
 | Tool | Description |
 |---|---|
-| `hplot` | H-plot computation (supports `--base-by` / `--target-by` `celltype` \| `cme` \| `aggregate` to plot a discovered niche or aggregate across layers) |
+| `hplot` | H-plot computation (supports `--base-by` / `--target-by` `celltype` \| `niche` \| `aggregate` to plot a discovered niche or aggregate across layers) |
 | `hplot-finalize` | Finalize H-plot output |
 | `ecomp` | Edge composition analysis |
 | `tcomp` | Triad composition analysis |
-| `cme` | Cellular microenvironment clustering (pass `--export-geojson` for GeoJSON output) |
-| `cme-profile` | Summarise each CME (niche) by its dominant cell types |
+| `niche` | Niche clustering (pass `--export-geojson` for GeoJSON output) |
+| `niche-profile` | Summarise each niche by its dominant cell types |
 | `agg` | Cell-type aggregate analysis (e.g. T+B cells → tertiary lymphoid structures) |
 | `import` | Import Xenium spatial-transcriptomics onto WSInsight cells |
 

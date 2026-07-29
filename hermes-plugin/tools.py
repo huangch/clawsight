@@ -686,11 +686,11 @@ async def sptx_annotate(params: dict, **_: Any) -> str:
 async def sptx_export(params: dict, **_: Any) -> str:
     return await _proxy("export", params, _sptx_state)
 
-async def sptx_cme(params: dict, **_: Any) -> str:
-    return await _proxy("cme", params, _sptx_state)
+async def sptx_niche(params: dict, **_: Any) -> str:
+    return await _proxy("niche", params, _sptx_state)
 
-async def sptx_cme_profile(params: dict, **_: Any) -> str:
-    return await _proxy("cme_profile", params, _sptx_state)
+async def sptx_niche_profile(params: dict, **_: Any) -> str:
+    return await _proxy("niche_profile", params, _sptx_state)
 
 async def sptx_hplot(params: dict, **_: Any) -> str:
     return await _proxy("hplot", params, _sptx_state)

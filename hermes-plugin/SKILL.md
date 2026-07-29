@@ -46,14 +46,14 @@ All pipeline tools support `--overwrite` to regenerate existing outputs instead 
   schema and the plugin does not hard-code it.
 - **Async tools** (long-running on the server) return `job_id` immediately:
   `run`, `patch`, `infer`, `ncomp`, plus the experimental `hplot`, `ecomp`,
-  `tcomp`, `cme`. Poll `wsinsight_job_status` until `status` is `"done"`
+  `tcomp`, `niche`. Poll `wsinsight_job_status` until `status` is `"done"`
   or `"error"`.
 - **Sync tools** (`export`, `reg`, and the experimental `hplot-finalize`,
-  `cme-profile`, `import`) block until completion and return output directly.
+  `niche-profile`, `import`) block until completion and return output directly.
 - If you get a connection error, call `wsinsight_connect` to re-establish the
   session (the server may have restarted or the container may have cycled).
-- **Experimental tools** (`hplot`, `hplot-finalize`, `ecomp`, `tcomp`, `cme`,
-  `cme-profile`, `agg`, `import`) appear in `wsinsight_list_tools` only when the container was
+- **Experimental tools** (`hplot`, `hplot-finalize`, `ecomp`, `tcomp`, `niche`,
+  `niche-profile`, `agg`, `import`) appear in `wsinsight_list_tools` only when the container was
   started with `"experimental": true` (which sets `WSINSIGHT_EXPERIMENTAL=1` and
   launches the server with `--experimental`).
 - **Memory-constrained environments** (containers, shared servers): if

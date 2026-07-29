@@ -3,7 +3,7 @@ version: 1.0.0
 description: >
   WSInsight + sptxinsight pathology & spatial-transcriptomics AI. Run
   whole-slide tissue segmentation, GPU inference, spatial graph analytics and
-  GeoJSON/OME-CSV export via the WSInsight MCP server, and cell-typing / CME
+  GeoJSON/OME-CSV export via the WSInsight MCP server, and cell-typing / niche
   niche discovery / H-Plot / CCI via the sptxinsight MCP server. Each backend
   runs in its own Docker container (wsinsight_* and sptx_* tools).
 author: clawsight contributors
@@ -33,8 +33,8 @@ provides_tools:
   - sptx_ingest
   - sptx_annotate
   - sptx_export
-  - sptx_cme
-  - sptx_cme_profile
+  - sptx_niche
+  - sptx_niche_profile
   - sptx_hplot
   - sptx_hplot_finalize
   - sptx_cci

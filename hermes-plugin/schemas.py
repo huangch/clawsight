@@ -108,7 +108,7 @@ WSINSIGHT_START_DOCKER = {
                 "type": "boolean",
                 "description": (
                     "Expose experimental WSInsight tools "
-                    "(hplot, hplot-finalize, ecomp, tcomp, cme, cme-profile). Default: false."
+                    "(hplot, hplot-finalize, ecomp, tcomp, niche, niche-profile). Default: false."
                 ),
             },
         },
@@ -507,7 +507,7 @@ SPTX_LIST_TOOLS = {
 SPTX_RUN = _sptx_pipeline_schema(
     "sptx_run",
     "Run the full sptxinsight spatial-transcriptomics pipeline "
-    "(ingest -> annotate -> cme niche discovery). Returns a job_id immediately; "
+    "(ingest -> annotate -> niche discovery). Returns a job_id immediately; "
     "poll sptx_job_status for progress. Paths in 'arguments' must be relative "
     "to /workspace (= data_dir).",
 )
@@ -538,17 +538,17 @@ SPTX_EXPORT = {
     },
 }
 
-SPTX_CME = _sptx_pipeline_schema(
-    "sptx_cme",
-    "Discover cellular-microenvironment (CME) niches by training a graph "
+SPTX_NICHE = _sptx_pipeline_schema(
+    "sptx_niche",
+    "Discover niches by training a graph "
     "autoencoder on the spatial cell graph. GPU, long-running; returns a "
     "job_id immediately and you poll sptx_job_status.",
 )
 
-SPTX_CME_PROFILE = {
-    "name": "sptx_cme_profile",
+SPTX_NICHE_PROFILE = {
+    "name": "sptx_niche_profile",
     "description": (
-        "Profile / summarise CME niches produced by sptx_cme. "
+        "Profile / summarise niches produced by sptx_niche. "
         "Runs synchronously and returns the exit status and a log tail. "
         "Call sptx_list_tools to discover the exact parameter names."
     ),
@@ -599,7 +599,7 @@ SPTX_JOB_STATUS = {
         "properties": {
             "job_id": {
                 "type": "string",
-                "description": "Job ID returned by a sptx pipeline tool (run, ingest, annotate, cme).",
+                "description": "Job ID returned by a sptx pipeline tool (run, ingest, annotate, niche).",
             },
         },
         "required": ["job_id"],

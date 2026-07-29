@@ -2,7 +2,7 @@
 
 Provides tools for managing two MCP servers in Docker:
   * wsinsight_* — whole-slide image (WSI) pathology pipelines.
-  * sptx_*      — spatial-transcriptomics cell-typing / CME / H-Plot / CCI.
+  * sptx_*      — spatial-transcriptomics cell-typing / niche / H-Plot / CCI.
 Each backend runs in its own container (default ports 8765 and 8766).
 
 Configuration (set in .env or environment):
@@ -202,14 +202,14 @@ def register(ctx) -> None:
             _tools.sptx_export,
         ),
         (
-            "sptx_cme",
-            schemas.SPTX_CME,
-            _tools.sptx_cme,
+            "sptx_niche",
+            schemas.SPTX_NICHE,
+            _tools.sptx_niche,
         ),
         (
-            "sptx_cme_profile",
-            schemas.SPTX_CME_PROFILE,
-            _tools.sptx_cme_profile,
+            "sptx_niche_profile",
+            schemas.SPTX_NICHE_PROFILE,
+            _tools.sptx_niche_profile,
         ),
         (
             "sptx_hplot",

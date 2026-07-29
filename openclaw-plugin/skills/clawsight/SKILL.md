@@ -44,14 +44,14 @@ Or run everything in one call with **wsinsight_run**.
   schema and the plugin does not hard-code it.
 - **Async tools** (long-running on the server) return `job_id` immediately:
   `run`, `patch`, `infer`, `ncomp`, plus the experimental `hplot`, `ecomp`,
-  `tcomp`, `cme`. Poll `wsinsight_job_status` until `status` is `"done"`
+  `tcomp`, `niche`. Poll `wsinsight_job_status` until `status` is `"done"`
   or `"error"`.
 - **Sync tools** (`export`, `reg`, and the experimental `hplot-finalize`,
-  `cme-profile`, `import`) block until completion and return output directly.
+  `niche-profile`, `import`) block until completion and return output directly.
 - If you get a connection error, call `wsinsight_connect` to re-establish the
   session (the server may have restarted or the container may have cycled).
-- **Experimental tools** (`hplot`, `hplot-finalize`, `ecomp`, `tcomp`, `cme`,
-  `cme-profile`, `agg`, `import`) appear in `wsinsight_list_tools` only when the container was
+- **Experimental tools** (`hplot`, `hplot-finalize`, `ecomp`, `tcomp`, `niche`,
+  `niche-profile`, `agg`, `import`) appear in `wsinsight_list_tools` only when the container was
   started with `"experimental": true` (which sets `WSINSIGHT_EXPERIMENTAL=1` and
   launches the server with `--experimental`).
 - **Memory-constrained environments** (containers, shared servers): if
@@ -141,8 +141,8 @@ Everything lands under the `results_dir` you passed (relative to `/workspace`):
 `wsinsight_import` writes one AnnData `.h5ad` per sample: sparse Xenium gene
 expression in `X`, and each cell's matched `model-outputs-csv` detection copied
 into `obs` under a `model_` prefix (plus `model_cell_id`). The `model` source is
-always imported; pass `include` (e.g. `"cme,hplot,ncomp"`) to also merge those
-per-cell sidecars under their own `cme_` / `hplot_` / `ncomp_` prefixes (`hplot`
+always imported; pass `include` (e.g. `"niche,hplot,ncomp"`) to also merge those
+per-cell sidecars under their own `niche_` / `hplot_` / `ncomp_` prefixes (`hplot`
 contributes `hplot_distance_to_border`). Columns a sidecar echoes from the model
 output are not duplicated, and unmatched cells leave every merged field `NaN`.
 
