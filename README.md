@@ -265,11 +265,11 @@ When the container is started with `-e` (`./start-wsinsight.sh -e -d /data`), ad
 
 | Tool | Description |
 |---|---|
-| `hplot` | H-plot computation (supports `--hplot-base-by` / `--hplot-target-by` `celltype` \| `niche` \| `aggregate` to plot a discovered niche or aggregate across layers) |
+| `hplot` | H-plot computation (supports `--base-by` / `--target-by` `celltype` \| `niche` \| `aggregate` to plot a discovered niche or aggregate across layers) |
 | `hplot-finalize` | Finalize H-plot output |
 | `ecomp` | Edge composition analysis |
 | `tcomp` | Triad composition analysis |
-| `niche` | Niche clustering (pass `--export-geojson` for GeoJSON output; `--niche-epochs` caps DGI training epochs with early stopping always active — tune via `--niche-patience` / `--niche-min-delta` / `--niche-min-epochs`; `--niche-amp` enables CUDA mixed precision) |
+| `niche` | Niche clustering (pass `--export-geojson` for GeoJSON output; `--epochs` caps DGI training epochs with early stopping always active — tune via `--patience` / `--min-delta` / `--min-epochs`; `--amp` enables CUDA mixed precision) |
 | `niche-profile` | Summarise each niche by its dominant cell types |
 | `agg` | Cell-type aggregate analysis (e.g. T+B cells → tertiary lymphoid structures) |
 | `import` | Import Xenium spatial-transcriptomics onto WSInsight cells |
