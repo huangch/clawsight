@@ -269,7 +269,7 @@ When the container is started with `-e` (`./start-wsinsight.sh -e -d /data`), ad
 | `hplot-finalize` | Finalize H-plot output |
 | `ecomp` | Edge composition analysis |
 | `tcomp` | Triad composition analysis |
-| `niche` | Niche clustering (pass `--export-geojson` for GeoJSON output; `--epochs` caps DGI training epochs with early stopping always active — tune via `--patience` / `--min-delta` / `--min-epochs`; `--amp` enables CUDA mixed precision) |
+| `niche` | Niche clustering (pass `--export-geojson` for GeoJSON output; `--epochs` caps DGI training epochs with early stopping always active — tune via `--patience` / `--min-delta` / `--min-epochs`; `--amp` enables CUDA mixed precision; `--hoptimus` adds H-Optimus morphology features reduced to `--hoptimus-pca-dim` dims, default 32) |
 | `niche-profile` | Summarise each niche by its dominant cell types |
 | `agg` | Cell-type aggregate analysis (e.g. T+B cells → tertiary lymphoid structures) |
 | `import` | Import Xenium spatial-transcriptomics onto WSInsight cells |
