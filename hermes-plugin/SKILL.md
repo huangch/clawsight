@@ -56,6 +56,10 @@ All pipeline tools support `--overwrite` to regenerate existing outputs instead 
   `niche-profile`, `agg`, `import`) appear in `wsinsight_list_tools` only when the container was
   started with `"experimental": true` (which sets `WSINSIGHT_EXPERIMENTAL=1` and
   launches the server with `--experimental`).
+- For morphology-driven niche runs, pass `niche_hoptimus: true`. Omit
+  `niche_hoptimus_pca_dim` to use raw H-Optimus vectors, or set it to reduce
+  dimensions with PCA. Pass `niche_hoptimus_only: true` (with `niche_hoptimus`)
+  to skip k-hop composition features and cluster on H-Optimus features only.
 - **Memory-constrained environments** (containers, shared servers): if
   DataLoader workers are killed by the system OOM killer, pass
   `"pin_memory": false` and optionally reduce `"num_workers": 2` and
