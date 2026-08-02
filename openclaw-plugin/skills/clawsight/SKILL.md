@@ -58,11 +58,14 @@ Or run everything in one call with **wsinsight_run**.
   `niche_hoptimus_pca_dim` to use raw H-Optimus vectors, or set it to reduce
   dimensions with PCA. Pass `niche_hoptimus_only: true` (with `niche_hoptimus`)
   to skip k-hop composition features and cluster on H-Optimus features only.
+  `niche_hoptimus_batch_size` is **auto-calibrated from GPU VRAM** by default;
+  set it explicitly only to cap memory use (e.g. when sharing the GPU).
 - **Memory-constrained environments** (containers, shared servers): if
   DataLoader workers are killed by the system OOM killer, pass
-  `"pin_memory": false` and optionally reduce `"num_workers": 2` and
-  `"batch_size": 16`. WSInsight also auto-recovers from worker death by
-  disabling `pin_memory` and reducing `num_workers` on retry.
+  `"pin_memory": false` and optionally reduce `"num_workers": 2`.
+  `batch_size` is **auto-calibrated from GPU VRAM by default** — omit it
+  unless you need to cap memory use. WSInsight also auto-recovers from worker
+  death by disabling `pin_memory` and reducing `num_workers` on retry.
 
 ## Tool reference
 

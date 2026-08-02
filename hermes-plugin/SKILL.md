@@ -60,11 +60,15 @@ All pipeline tools support `--overwrite` to regenerate existing outputs instead 
   `niche_hoptimus_pca_dim` to use raw H-Optimus vectors, or set it to reduce
   dimensions with PCA. Pass `niche_hoptimus_only: true` (with `niche_hoptimus`)
   to skip k-hop composition features and cluster on H-Optimus features only.
+  `niche_hoptimus_batch_size` is **auto-calibrated from GPU VRAM** by default;
+  set it explicitly only to cap memory use (e.g. when sharing the GPU).
 - **Memory-constrained environments** (containers, shared servers): if
   DataLoader workers are killed by the system OOM killer, pass
-  `"pin_memory": false` and optionally reduce `"num_workers": 2` and
-  `"batch_size": 16`. WSInsight also auto-recovers from worker death by
-  disabling `pin_memory` and reducing `num_workers` on retry.
+  `"pin_memory": false` and optionally reduce `"num_workers": 2`. The
+  `batch_size` parameter is now **auto-calibrated from available GPU VRAM by
+  default** (omit it unless you need to cap memory use). WSInsight also
+  auto-recovers from worker death by disabling `pin_memory` and reducing
+  `num_workers` on retry.
 
 ## Tool reference
 
@@ -195,6 +199,27 @@ Left-join of `model-outputs-csv/` with `ncomp-outputs-csv/` on
 
 Edges are stored unpruned; pruning to `ncomp_max_neighbor_distance` happens
 at read time.
+
+### Niche output files
+
+The `niche` tool writes:
+
+```
+<results_dir>/
+  niche-outputs-csv/cells/<slide>.csv     Per-cell table (model cols + niche_id)
+  niche-outputs-csv/niches/<slide>.csv    Annotation-level merged niche regions (niche_id + polygon_wkt + area)
+  niche-outputs-geojson/cells/            GeoJSON detections with niche_id classification
+  niche-outputs-geojson/niches/           GeoJSON annotation regions
+  export-h5ad/<slide>.h5ad                AnnData: obs["niche_id"] Categorical, obs["classification"] = cell type
+```
+
+**`niche_id`** is an integer (0-indexed) that identifies which niche cluster a cell belongs to.
+It replaces the former `niche_0`…`niche_N` one-hot columns. To migrate old outputs:
+
+```bash
+python /workspace/wsinsight/devel/wsinsight/scripts/migrate_niche_onehot_to_id.py \
+    niche-outputs-csv/cells/*.csv
+```
 
 ### `export-geojson/<slide>.geojson`
 

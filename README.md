@@ -226,12 +226,11 @@ If DataLoader workers are killed by the system OOM killer (common in containers 
   "results_dir": "/workspace/results",
   "model": "CellViT-SAM-H-x40",
   "pin_memory": false,
-  "num_workers": 2,
-  "batch_size": 16
+  "num_workers": 2
 }
 ```
 
-WSInsight also automatically recovers from worker death by disabling `pin_memory` and reducing `num_workers` on retry.
+`batch_size` is now **auto-calibrated from available GPU VRAM by default** (two-point memory measurement runs at startup). Omit it unless you need to cap memory use. WSInsight also automatically recovers from worker death by disabling `pin_memory` and reducing `num_workers` on retry.
 
 ### Async job polling pattern
 
@@ -269,7 +268,7 @@ When the container is started with `-e` (`./start-wsinsight.sh -e -d /data`), ad
 | `hplot-finalize` | Finalize H-plot output |
 | `ecomp` | Edge composition analysis |
 | `tcomp` | Triad composition analysis |
-| `niche` | Niche clustering (pass `--export-geojson` for GeoJSON output; `--epochs` caps DGI training epochs with early stopping always active — tune via `--patience` / `--min-delta` / `--min-epochs`; `--amp` enables CUDA mixed precision; `--hoptimus` adds H-Optimus morphology features; omit `--hoptimus-pca-dim` for raw vectors or set it for PCA-reduced vectors; `--hoptimus-only` uses morphology vectors only and skips k-hop composition) |
+| `niche` | Niche clustering (pass `--export-geojson` for GeoJSON output; `--epochs` caps DGI training epochs; `--hoptimus` adds H-Optimus morphology features; `--hoptimus-batch-size` caps H-Optimus GPU batch size — **auto-calibrated by default**, omit unless sharing the GPU; `--hoptimus-only` uses morphology features only; output uses `niche_id` integer column instead of one-hot `niche_0`…`niche_N`) |
 | `niche-profile` | Summarise each niche by its dominant cell types |
 | `agg` | Cell-type aggregate analysis (e.g. T+B cells → tertiary lymphoid structures) |
 | `import` | Import Xenium spatial-transcriptomics onto WSInsight cells |
