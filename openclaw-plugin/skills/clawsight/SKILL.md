@@ -1,6 +1,6 @@
 ---
 name: clawsight
-description: Operate WSInsight whole-slide pathology AI via its Docker MCP server
+description: Operate WSInsight + sptxinsight AI via Docker MCP servers.
 ---
 
 # ClawSight Skill

@@ -1,6 +1,6 @@
 ---
 name: clawsight
-description: Operate WSInsight whole-slide pathology AI via its Docker MCP server
+description: Operate WSInsight + sptxinsight AI via Docker MCP servers.
 ---
 
 # ClawSight Skill
@@ -18,8 +18,6 @@ WSI file  →  wsinsight_patch  →  wsinsight_infer  →  wsinsight_ncomp  → 
 ```
 
 Or run everything in one call with **wsinsight_run**.
-
-All pipeline tools support `--overwrite` to regenerate existing outputs instead of skipping slides that already have results.
 
 ## Quick-start
 
@@ -64,11 +62,10 @@ All pipeline tools support `--overwrite` to regenerate existing outputs instead 
   set it explicitly only to cap memory use (e.g. when sharing the GPU).
 - **Memory-constrained environments** (containers, shared servers): if
   DataLoader workers are killed by the system OOM killer, pass
-  `"pin_memory": false` and optionally reduce `"num_workers": 2`. The
-  `batch_size` parameter is now **auto-calibrated from available GPU VRAM by
-  default** (omit it unless you need to cap memory use). WSInsight also
-  auto-recovers from worker death by disabling `pin_memory` and reducing
-  `num_workers` on retry.
+  `"pin_memory": false` and optionally reduce `"num_workers": 2`.
+  `batch_size` is **auto-calibrated from GPU VRAM by default** — omit it
+  unless you need to cap memory use. WSInsight also auto-recovers from worker
+  death by disabling `pin_memory` and reducing `num_workers` on retry.
 
 ## Tool reference
 
@@ -143,10 +140,18 @@ Everything lands under the `results_dir` you passed (relative to `/workspace`):
   export-csv/<slide>.csv             Merged per-cell table (model + ncomp)
   export-geojson/<slide>.geojson     QuPath-compatible GeoJSON
   export-omecsv/<slide>.ome.csv.gz   QuPath / OMERO+ compatible OME-CSV
-  imported-xenium/<sample_id>.h5ad   Xenium expression mapped onto cells (wsinsight import; experimental)
+  imported-xenium/<sample_id>.h5ad     Xenium expression mapped onto cells (wsinsight import; experimental)
   patch_metadata_<ts>.json           Patch-stage configuration
   infer_metadata_<ts>.json           Inference-stage configuration
 ```
+
+`wsinsight_import` writes one AnnData `.h5ad` per sample: sparse Xenium gene
+expression in `X`, and each cell's matched `model-outputs-csv` detection copied
+into `obs` under a `model_` prefix (plus `model_cell_id`). The `model` source is
+always imported; pass `include` (e.g. `"niche,hplot,ncomp"`) to also merge those
+per-cell sidecars under their own `niche_` / `hplot_` / `ncomp_` prefixes (`hplot`
+contributes `hplot_distance_to_border`). Columns a sidecar echoes from the model
+output are not duplicated, and unmatched cells leave every merged field `NaN`.
 
 ### `model-outputs-csv/<slide>.csv` (per-cell or per-patch)
 
@@ -199,27 +204,6 @@ Left-join of `model-outputs-csv/` with `ncomp-outputs-csv/` on
 
 Edges are stored unpruned; pruning to `ncomp_max_neighbor_distance` happens
 at read time.
-
-### Niche output files
-
-The `niche` tool writes:
-
-```
-<results_dir>/
-  niche-outputs-csv/cells/<slide>.csv     Per-cell table (model cols + niche_id)
-  niche-outputs-csv/niches/<slide>.csv    Annotation-level merged niche regions (niche_id + polygon_wkt + area)
-  niche-outputs-geojson/cells/            GeoJSON detections with niche_id classification
-  niche-outputs-geojson/niches/           GeoJSON annotation regions
-  export-h5ad/<slide>.h5ad                AnnData: obs["niche_id"] Categorical, obs["classification"] = cell type
-```
-
-**`niche_id`** is an integer (0-indexed) that identifies which niche cluster a cell belongs to.
-It replaces the former `niche_0`…`niche_N` one-hot columns. To migrate old outputs:
-
-```bash
-python /workspace/wsinsight/devel/wsinsight/scripts/migrate_niche_onehot_to_id.py \
-    niche-outputs-csv/cells/*.csv
-```
 
 ### `export-geojson/<slide>.geojson`
 

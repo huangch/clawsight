@@ -31,10 +31,10 @@ import logging
 import shutil
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
-
 from . import schemas
 from . import tools as _tools
+
+logger = logging.getLogger(__name__)
 
 
 def _install_skill() -> None:
