@@ -1,248 +1,116 @@
 ---
 name: clawsight
-description: Operate WSInsight + sptxinsight AI via Docker MCP servers.
+description: Run the WSInsight engine family (wsinsight, sptxinsight, hplot, kurtorank, wsitrain) in Docker via MCP.
 ---
 
 # ClawSight Skill
 
-ClawSight gives you full control over WSInsight — an end-to-end whole-slide
-image (WSI) pathology analysis toolkit — by connecting to a WSInsight MCP
-server running inside a Docker container.
+ClawSight starts Docker containers for five analysis engines and proxies tool
+calls to the MCP server inside each one.
 
-## Pipeline overview
+| Engine | What it does | GPU | Port |
+|---|---|---|---|
+| `wsinsight` | Whole-slide pathology: tissue segmentation, patching, GPU cell inference, neighborhood composition, niche discovery, GeoJSON/OME-CSV export | yes | 8765 |
+| `sptxinsight` | Spatial transcriptomics: AnnData ingest, cell typing, niche discovery, H-Plot, ligand-receptor (CCI) | yes | 8766 |
+| `hplot` | Signed-distance boundary profiling: cluster-mass permutation tests, GAM effect sizes | no | 8767 |
+| `kurtorank` | Unsupervised subtype annotation and marker ranking for gene-limited panels | no | 8768 |
+| `wsitrain` | Headless end-to-end training of WSInsight CellViT heads | yes | 8769 |
 
-```
-WSI file  →  wsinsight_patch  →  wsinsight_infer  →  wsinsight_ncomp  →  wsinsight_export
-              (tissue seg +        (GPU model            (Delaunay graph      (GeoJSON /
-               HDF5 patches)        inference)            neighborhood)        OME-CSV)
-```
+## The five tools, per engine
 
-Or run everything in one call with **wsinsight_run**.
+Every engine has exactly the same interface:
 
-## Quick-start
+| Tool | Purpose |
+|---|---|
+| `<engine>_start` | Start the container + MCP server, then list its tools |
+| `<engine>_stop` | Stop and remove the container |
+| `<engine>_status` | Is it running? which URL? how many tools? |
+| `<engine>_list_tools` | Live tool catalog; pass `tool=` for one tool's full schema |
+| `<engine>_call` | Invoke any tool the container exposes |
 
-```
-1. wsinsight_start_docker({ "data_dir": "/path/to/slides", "gpu_ids": "0" })
-2. # wait ~5 seconds
-3. wsinsight_connect({})
-4. wsinsight_list_tools({})           ← discover exact parameter names
-5. wsinsight_run({ "arguments": { "wsi_dir": "slides",
-                                  "results_dir": "results",
-                                  "model": "breast-tumor-resnet34.tcga-brca" } })
-6. wsinsight_job_status({ "job_id": "<id>" })  ← poll until "done"
-7. wsinsight_stop_docker({})          ← clean up when finished
-```
+**Tool catalogs are discovered live, never hard-coded.** Whatever the installed
+image supports is what you can call.
 
-## Rules
+## Standard workflow
 
-- **File paths** inside `arguments` must be **relative to `/workspace`**
-  (= the `data_dir` you passed to `wsinsight_start_docker`).
-- **Argument names are the WSInsight CLI parameter names in snake_case**
-  (e.g. `wsi_dir`, `results_dir`, `batch_size`, `num_workers`,
-  `region_inference_dir`, `export_geojson`). Always call
-  `wsinsight_list_tools` first — the MCP server exposes the canonical
-  schema and the plugin does not hard-code it.
-- **Async tools** (long-running on the server) return `job_id` immediately:
-  `run`, `patch`, `infer`, `ncomp`, plus the experimental `hplot`, `ecomp`,
-  `tcomp`, `niche`. Poll `wsinsight_job_status` until `status` is `"done"`
-  or `"error"`.
-- **Sync tools** (`export`, `reg`, and the experimental `hplot-finalize`,
-  `niche-profile`, `import`) block until completion and return output directly.
-- If you get a connection error, call `wsinsight_connect` to re-establish the
-  session (the server may have restarted or the container may have cycled).
-- **Experimental tools** (`hplot`, `hplot-finalize`, `ecomp`, `tcomp`, `niche`,
-  `niche-profile`, `agg`, `import`) appear in `wsinsight_list_tools` only when the container was
-  started with `"experimental": true` (which sets `WSINSIGHT_EXPERIMENTAL=1` and
-  launches the server with `--experimental`).
-- For morphology-driven niche runs, pass `niche_hoptimus: true`. Omit
-  `niche_hoptimus_pca_dim` to use raw H-Optimus vectors, or set it to reduce
-  dimensions with PCA. Pass `niche_hoptimus_only: true` (with `niche_hoptimus`)
-  to skip k-hop composition features and cluster on H-Optimus features only.
-  `niche_hoptimus_batch_size` is **auto-calibrated from GPU VRAM** by default;
-  set it explicitly only to cap memory use (e.g. when sharing the GPU).
-- **Memory-constrained environments** (containers, shared servers): if
-  DataLoader workers are killed by the system OOM killer, pass
-  `"pin_memory": false` and optionally reduce `"num_workers": 2`.
-  `batch_size` is **auto-calibrated from GPU VRAM by default** — omit it
-  unless you need to cap memory use. WSInsight also auto-recovers from worker
-  death by disabling `pin_memory` and reducing `num_workers` on retry.
-
-## Tool reference
-
-| Tool | Category | Blocks? |
-|------|----------|---------|
-| `wsinsight_server_info`  | Connection | sync |
-| `wsinsight_connect`      | Connection | sync |
-| `wsinsight_start_docker` | Docker     | sync |
-| `wsinsight_stop_docker`  | Docker     | sync |
-| `wsinsight_list_tools`   | Discovery  | sync |
-| `wsinsight_run`          | Pipeline   | async → job_id |
-| `wsinsight_patch`        | Pipeline   | async → job_id |
-| `wsinsight_infer`        | Pipeline   | async → job_id |
-| `wsinsight_ncomp`        | Pipeline   | async → job_id |
-| `wsinsight_export`       | Pipeline   | sync |
-| `wsinsight_reg`          | Pipeline   | sync |
-| `wsinsight_import`       | Spatial-omics | sync (experimental) |
-| `wsinsight_job_status`   | Job mgmt   | sync |
-| `wsinsight_job_logs`     | Job mgmt   | sync |
-| `wsinsight_cancel_job`   | Job mgmt   | sync |
-| `wsinsight_list_jobs`    | Job mgmt   | sync |
-
-## Available models
-
-Pass one of the names below as the `model` argument. The MCP server resolves
-them from the bundled WSInsight zoo registry inside the container; no network
-access is required.
-
-**Cell-level (object-based) models** — each cell becomes one row in
-`model-outputs-csv/<slide>.csv`:
-
-- `CellViT-256-x20`, `CellViT-256-x40`, `CellViT-256-x40-AMP`
-- `CellViT-SAM-H-x20`, `CellViT-SAM-H-x40`, `CellViT-SAM-H-x40-AMP`
-- `CellViT-Virchow-x40-AMP`
-- `10xGenomics-BRCA-CellViT-SAM-H-x40`,
-  `10xGenomics-CRC-CellViT-SAM-H-x40`
-- `hovernet_fast_pannuke`
-- `hne_cell_classification`
-
-**Region / patch-level models** — each patch becomes one row
-(useful as `region_inference_dir` for `reg` or for `region_prob_*` columns):
-
-- `breast-tumor-resnet34.tcga-brca`
-- `lung-tumor-resnet34.tcga-luad`
-- `pancreas-tumor-preactresnet34.tcga-paad`
-- `prostate-tumor-resnet34.tcga-prad`
-- `pancancer-lymphocytes-inceptionv4.tcga`
-- `lymphnodes-tiatoolbox-resnet50.patchcamelyon`
-- `colorectal-tiatoolbox-resnet50.kather100k`
-- `colorectal-resnet34.penn`
-
-**Selection rules:**
-
-- The `x20` / `x40` suffix on CellViT models **must match the slide
-  magnification** (TCGA diagnostic SVS slides are typically 40x).
-- `--model` is mutually exclusive with the trio
-  (`--config` + `--model-path`) and `--zoo-model-dir` (folder with
-  `config.json` + `torchscript_model.pt`). For ad hoc weights, pass them via
-  the `config`/`model_path` or `zoo_model_dir` arguments instead of `model`.
-
-## Output data formats
-
-Everything lands under the `results_dir` you passed (relative to `/workspace`):
+Always start the container first — nothing else works until it is running.
 
 ```
-<results_dir>/
-  masks/<slide>.jpg                  Tissue segmentation thumbnails
-  patches/<slide>.h5                 Patch coords (and optional images)
-  model-outputs-csv/<slide>.csv      Per-cell (or per-patch) inference table
-  ncomp-outputs-csv/<slide>.csv      Per-cell neighborhood composition
-  graphs/<slide>.h5                  Cached Delaunay graph
-  export-csv/<slide>.csv             Merged per-cell table (model + ncomp)
-  export-geojson/<slide>.geojson     QuPath-compatible GeoJSON
-  export-omecsv/<slide>.ome.csv.gz   QuPath / OMERO+ compatible OME-CSV
-  imported-xenium/<sample_id>.h5ad     Xenium expression mapped onto cells (wsinsight import; experimental)
-  patch_metadata_<ts>.json           Patch-stage configuration
-  infer_metadata_<ts>.json           Inference-stage configuration
+1. wsinsight_start({"data_dir": "/data/slides"})
+      -> mounts /data/slides at /workspace and prints the tool list
+2. wsinsight_call({"tool": "run", "arguments": {
+       "wsi_dir": "/workspace/images",
+       "results_dir": "/workspace/out",
+       "model": "CellViT-SAM-H-x40"}})
+      -> returns {"job_id": "..."} for long-running tools
+3. wsinsight_call({"tool": "job_status", "arguments": {"job_id": "..."}})
+      -> poll until status is "done"
+4. wsinsight_call({"tool": "job_logs", "arguments": {"job_id": "..."}})
+5. wsinsight_stop({})
 ```
 
-`wsinsight_import` writes one AnnData `.h5ad` per sample: sparse Xenium gene
-expression in `X`, and each cell's matched `model-outputs-csv` detection copied
-into `obs` under a `model_` prefix (plus `model_cell_id`). The `model` source is
-always imported; pass `include` (e.g. `"niche,hplot,ncomp"`) to also merge those
-per-cell sidecars under their own `niche_` / `hplot_` / `ncomp_` prefixes (`hplot`
-contributes `hplot_distance_to_border`). Columns a sidecar echoes from the model
-output are not duplicated, and unmatched cells leave every merged field `NaN`.
+If you do not know a tool's parameters, call
+`<engine>_list_tools({"tool": "<name>"})` for its full JSON input schema
+rather than guessing.
 
-### `model-outputs-csv/<slide>.csv` (per-cell or per-patch)
+## Paths are container paths
 
-Columns:
+`data_dir` is a **host** directory; everything inside the container sees it as
+`/workspace`. So after `wsinsight_start({"data_dir": "/data/slides"})`, a host
+file `/data/slides/images/a.svs` is `/workspace/images/a.svs` in every
+subsequent `_call`. Passing host paths to `_call` will fail.
 
-- `minx`, `miny`, `width`, `height` — bounding box in level-0 pixels.
-- `prob_<class>` — one float column per model class. The class names come
-  from the model's bundled `config.json` (e.g. `prob_tumor`,
-  `prob_lymphocyte`).
-- *(object-based models only)* `center_x`, `center_y` — cell centre in
-  level-0 pixels.
-- *(when `region_inference_dir` is supplied)* `region_minx`, `region_miny`,
-  `region_width`, `region_height`, `region_prob_<class>` — enclosing region
-  patch and its class probabilities. Argmax of `region_prob_*` gives a
-  per-cell region label (e.g. tumor vs non-tumor).
+## Long-running vs immediate
 
-### `ncomp-outputs-csv/<slide>.csv` (per-cell composition)
+Pipeline tools (`run`, `patch`, `infer`, `ncomp`, `niche`, training stages, …)
+return a `job_id` immediately. Poll with `job_status`, stream with `job_logs`,
+stop with `cancel_job`, and list everything with `list_jobs` — all through
+`<engine>_call`.
 
-- `center_x`, `center_y` — cell centre.
-- `cell_type` — argmax over `prob_*` from the model output.
-- `neighborhood_size` — number of k-hop neighbours (excluding self).
-- `neighborhood_<type>_count` and `neighborhood_<type>_prop` — per-class
-  counts and proportions across the k-hop neighbourhood. `_prop` is `NaN`
-  when `neighborhood_size == 0`.
+Short tools (`export`, `reg`, `niche_profile`, …) block and return their result
+directly.
 
-### `export-csv/<slide>.csv`
+## GPUs
 
-Left-join of `model-outputs-csv/` with `ncomp-outputs-csv/` on
-`(center_x, center_y)`. Same columns as the two sources combined.
+`wsinsight`, `sptxinsight` and `wsitrain` take `gpu_ids` on `_start`
+(`"0,1"`; omit for all GPUs). `hplot` and `kurtorank` are CPU-only and reject
+the option. Use `max_concurrent` to limit parallel jobs — set it to the number
+of GPUs you gave the container.
 
-### `patches/<slide>.h5` (HDF5)
+## Experimental tools
 
-- `/coords` — `(N, 2) int32`, top-left `[x, y]` of each patch at level 0.
-  Attributes: `patch_size`, `patch_level`, `patch_spacing_um_px`,
-  optional `tile_dim`.
-- `/slide.attrs` — `slide_path`, `slide_mpp`, `slide_width`, `slide_height`.
-- `/images` — `(N, patch_size, patch_size, 3) uint8`, only when the run
-  used `cache_image_patches=True`.
-- `/polygons/{coords, offsets}` — ragged polygon vertices (when polygons
-  were supplied).
+`wsinsight` and `sptxinsight` hide some sub-commands unless started with
+`experimental: true` (the default for both). `hplot`, `kurtorank` and
+`wsitrain` have no such split.
 
-### `graphs/<slide>.h5` (HDF5, produced by `ncomp`)
+## Engines are independent
 
-- `cell_centers` — `(N, 2) int32`.
-- `simplices` — `(M, 3) int32` Delaunay triangle vertex indices.
-- `edges_source`, `edges_target`, `edges_length` — unpruned undirected
-  edges (length in pixels).
-- `file.attrs` — `num_cells`, `mpp`, `centers_hash` (SHA-256 of
-  `cell_centers.tobytes()` for cache invalidation).
+Each runs in its own container on its own port, so several can run at once —
+for example `wsinsight` producing cell tables while `hplot` analyses an earlier
+result. Stopping one does not affect the others.
 
-Edges are stored unpruned; pruning to `ncomp_max_neighbor_distance` happens
-at read time.
+## Troubleshooting
 
-### `export-geojson/<slide>.geojson`
+- **"Cannot reach the ... MCP server"** — the container is not running. Call
+  `<engine>_status`, then `<engine>_start`.
+- **Tools missing right after `_start`** — the server may still be booting.
+  Call `<engine>_list_tools` again.
+- **Outputs owned by root** — `_start` passes your uid/gid so the container
+  writes as you. If files are still root-owned, the mounted directory was
+  root-owned to begin with.
+- **Port already in use** — pass a different `port` to `_start`, or set
+  `CLAWSIGHT_<ENGINE>_PORT`.
 
-Standard GeoJSON `FeatureCollection`. Each feature:
+## Configuration
 
-```json
-{
-  "type": "Feature",
-  "id": "<uuid4>",
-  "geometry": {"type": "Polygon", "coordinates": [[[x1,y1], ...]]},
-  "properties": {
-    "isLocked": true,
-    "objectType": "detection",       // or "tile" / "annotation"
-    "classification": {"name": "prob_<winner>", "color": [R,G,B]},
-    "measurements": {"prob_tumor": 0.92, "neighborhood_tumor_prop": 0.7, ...}
-  }
-}
+Per-engine overrides, all optional:
+
+```
+CLAWSIGHT_<ENGINE>_IMAGE      e.g. huangchtw/wsinsight:v1.2
+CLAWSIGHT_<ENGINE>_PORT
+CLAWSIGHT_<ENGINE>_CONTAINER
+CLAWSIGHT_<ENGINE>_MCP_URL    point at an already-running server
+CLAWSIGHT_<ENGINE>_TIMEOUT_MS
 ```
 
-`measurements` includes every numeric column except the geometry columns
-(`minx`, `miny`, `width`, `height`, `center_x`, `center_y`).
-
-### `export-omecsv/<slide>.ome.csv.gz`
-
-Gzip-compressed CSV with columns:
-
-- `object` — row index.
-- `secondary_object` — same as `object`.
-- `polygon` — WKT polygon string.
-- `objectType` — `"detection"` / `"tile"` / `"annotation"` (chosen via
-  `object_type` argument to `wsinsight_export`).
-- `classification` — argmax class name with the `prob_` prefix stripped.
-- All numeric non-geometry columns. `NaN` is written as the literal
-  string `"NaN"`.
-
-### Reading results from agent code
-
-```python
-import pandas as pd
-df = pd.read_csv("results/model-outputs-csv/SLIDE.csv")
-print(df.columns.tolist())   # incl. prob_<class> for every model class
-```
+`<ENGINE>` is the engine name upper-cased, e.g. `CLAWSIGHT_WSINSIGHT_PORT`.

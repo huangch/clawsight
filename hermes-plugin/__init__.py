@@ -1,38 +1,39 @@
-"""ClawSight — Hermes Agent plugin for WSInsight + sptxinsight AI.
+"""ClawSight — Hermes Agent plugin for the WSInsight engine family.
 
-Provides tools for managing two MCP servers in Docker:
-  * wsinsight_* — whole-slide image (WSI) pathology pipelines.
-  * sptx_*      — spatial-transcriptomics cell-typing / niche / H-Plot / CCI.
-Each backend runs in its own container (default ports 8765 and 8766).
+Manages Docker containers for every backend and proxies MCP tool calls to the
+server running inside each one. Five tools per engine:
 
-Configuration (set in .env or environment):
-  WSINSIGHT_MCP_URL         — wsinsight MCP endpoint (default: http://127.0.0.1:8765/mcp)
-  WSINSIGHT_MCP_TIMEOUT_MS  — request timeout in ms (default: 300000)
-  WSINSIGHT_CONTAINER_NAME  — default container name (default: clawsight-mcp)
-  SPTXINSIGHT_MCP_URL        — sptxinsight MCP endpoint (default: http://127.0.0.1:8766/mcp)
-  SPTXINSIGHT_MCP_TIMEOUT_MS — request timeout in ms (default: 300000)
-  SPTXINSIGHT_CONTAINER_NAME — default container name (default: clawsight-sptx-mcp)
+    <engine>_start       start the container + MCP server, discover its tools
+    <engine>_stop        stop and remove it
+    <engine>_status      container / connection health
+    <engine>_list_tools  live tool catalog
+    <engine>_call        invoke any tool the container exposes
+
+Engines are declared in ``engines.py``; nothing here is engine-specific, so a
+new backend is one table row. Currently: wsinsight, sptxinsight, hplot,
+kurtorank, wsitrain.
+
+Typical flow:
+    1. wsinsight_start({"data_dir": "/data/slides"})
+    2. wsinsight_list_tools({})
+    3. wsinsight_call({"tool": "run", "arguments": {...}})
+    4. wsinsight_call({"tool": "job_status", "arguments": {"job_id": "..."}})
+    5. wsinsight_stop({})
+
+Per-engine overrides (environment):
+    CLAWSIGHT_<ENGINE>_IMAGE / _PORT / _CONTAINER / _MCP_URL / _TIMEOUT_MS
 
 Install:
-  bash /path/to/clawsight/build4hermes.sh
-
-Usage (wsinsight):
-  1. wsinsight_start_docker({ "data_dir": "/data/slides" })
-  2. wsinsight_connect({})
-  3. wsinsight_list_tools({})
-  4. wsinsight_run({ "arguments": { ... } })
-  5. wsinsight_job_status({ "job_id": "..." })  # poll until done
-  6. wsinsight_stop_docker({})
-
-Usage (sptxinsight): same flow with the sptx_* tools.
+    bash /path/to/clawsight/build4hermes.sh
 """
 
 import logging
 import shutil
 from pathlib import Path
 
-from . import schemas
-from . import tools as _tools
+from .engines import ENGINES
+from .schemas import build_schemas
+from .tools import build_handlers
 
 logger = logging.getLogger(__name__)
 
@@ -40,10 +41,14 @@ logger = logging.getLogger(__name__)
 def _install_skill() -> None:
     """Copy the bundled skill file to ~/.hermes/skills/clawsight/ on first load."""
     try:
-        from hermes_cli.config import get_hermes_home
+        from hermes_constants import get_hermes_home
         dest = get_hermes_home() / "skills" / "clawsight" / "SKILL.md"
     except Exception:
-        dest = Path.home() / ".hermes" / "skills" / "clawsight" / "SKILL.md"
+        try:
+            from hermes_cli.config import get_hermes_home
+            dest = get_hermes_home() / "skills" / "clawsight" / "SKILL.md"
+        except Exception:
+            dest = Path.home() / ".hermes" / "skills" / "clawsight" / "SKILL.md"
 
     if dest.exists():
         return  # don't overwrite user edits
@@ -56,203 +61,26 @@ def _install_skill() -> None:
 
 
 def register(ctx) -> None:
-    """Register all ClawSight tools with the Hermes plugin context."""
-
+    """Register every engine's tools with the Hermes plugin context."""
     _install_skill()
 
-    _TOOLS = [
-        # ------------------------------------------------------------------
-        # Connection / Docker management
-        # ------------------------------------------------------------------
-        (
-            "wsinsight_server_info",
-            schemas.WSINSIGHT_SERVER_INFO,
-            _tools.wsinsight_server_info,
-        ),
-        (
-            "wsinsight_connect",
-            schemas.WSINSIGHT_CONNECT,
-            _tools.wsinsight_connect,
-        ),
-        (
-            "wsinsight_start_docker",
-            schemas.WSINSIGHT_START_DOCKER,
-            _tools.wsinsight_start_docker,
-        ),
-        (
-            "wsinsight_stop_docker",
-            schemas.WSINSIGHT_STOP_DOCKER,
-            _tools.wsinsight_stop_docker,
-        ),
-        # ------------------------------------------------------------------
-        # Discovery
-        # ------------------------------------------------------------------
-        (
-            "wsinsight_list_tools",
-            schemas.WSINSIGHT_LIST_TOOLS,
-            _tools.wsinsight_list_tools,
-        ),
-        # ------------------------------------------------------------------
-        # Pipeline
-        # ------------------------------------------------------------------
-        (
-            "wsinsight_run",
-            schemas.WSINSIGHT_RUN,
-            _tools.wsinsight_run,
-        ),
-        (
-            "wsinsight_patch",
-            schemas.WSINSIGHT_PATCH,
-            _tools.wsinsight_patch,
-        ),
-        (
-            "wsinsight_infer",
-            schemas.WSINSIGHT_INFER,
-            _tools.wsinsight_infer,
-        ),
-        (
-            "wsinsight_ncomp",
-            schemas.WSINSIGHT_NCOMP,
-            _tools.wsinsight_ncomp,
-        ),
-        (
-            "wsinsight_agg",
-            schemas.WSINSIGHT_AGG,
-            _tools.wsinsight_agg,
-        ),
-        (
-            "wsinsight_export",
-            schemas.WSINSIGHT_EXPORT,
-            _tools.wsinsight_export,
-        ),
-        (
-            "wsinsight_reg",
-            schemas.WSINSIGHT_REG,
-            _tools.wsinsight_reg,
-        ),
-        # ------------------------------------------------------------------
-        # Job management
-        # ------------------------------------------------------------------
-        (
-            "wsinsight_job_status",
-            schemas.WSINSIGHT_JOB_STATUS,
-            _tools.wsinsight_job_status,
-        ),
-        (
-            "wsinsight_job_logs",
-            schemas.WSINSIGHT_JOB_LOGS,
-            _tools.wsinsight_job_logs,
-        ),
-        (
-            "wsinsight_cancel_job",
-            schemas.WSINSIGHT_CANCEL_JOB,
-            _tools.wsinsight_cancel_job,
-        ),
-        (
-            "wsinsight_list_jobs",
-            schemas.WSINSIGHT_LIST_JOBS,
-            _tools.wsinsight_list_jobs,
-        ),
-        # ==================================================================
-        # sptxinsight tools (separate MCP server / container)
-        # ==================================================================
-        (
-            "sptx_server_info",
-            schemas.SPTX_SERVER_INFO,
-            _tools.sptx_server_info,
-        ),
-        (
-            "sptx_connect",
-            schemas.SPTX_CONNECT,
-            _tools.sptx_connect,
-        ),
-        (
-            "sptx_start_docker",
-            schemas.SPTX_START_DOCKER,
-            _tools.sptx_start_docker,
-        ),
-        (
-            "sptx_stop_docker",
-            schemas.SPTX_STOP_DOCKER,
-            _tools.sptx_stop_docker,
-        ),
-        (
-            "sptx_list_tools",
-            schemas.SPTX_LIST_TOOLS,
-            _tools.sptx_list_tools,
-        ),
-        (
-            "sptx_run",
-            schemas.SPTX_RUN,
-            _tools.sptx_run,
-        ),
-        (
-            "sptx_ingest",
-            schemas.SPTX_INGEST,
-            _tools.sptx_ingest,
-        ),
-        (
-            "sptx_annotate",
-            schemas.SPTX_ANNOTATE,
-            _tools.sptx_annotate,
-        ),
-        (
-            "sptx_export",
-            schemas.SPTX_EXPORT,
-            _tools.sptx_export,
-        ),
-        (
-            "sptx_niche",
-            schemas.SPTX_NICHE,
-            _tools.sptx_niche,
-        ),
-        (
-            "sptx_niche_profile",
-            schemas.SPTX_NICHE_PROFILE,
-            _tools.sptx_niche_profile,
-        ),
-        (
-            "sptx_hplot",
-            schemas.SPTX_HPLOT,
-            _tools.sptx_hplot,
-        ),
-        (
-            "sptx_hplot_finalize",
-            schemas.SPTX_HPLOT_FINALIZE,
-            _tools.sptx_hplot_finalize,
-        ),
-        (
-            "sptx_cci",
-            schemas.SPTX_CCI,
-            _tools.sptx_cci,
-        ),
-        (
-            "sptx_job_status",
-            schemas.SPTX_JOB_STATUS,
-            _tools.sptx_job_status,
-        ),
-        (
-            "sptx_job_logs",
-            schemas.SPTX_JOB_LOGS,
-            _tools.sptx_job_logs,
-        ),
-        (
-            "sptx_cancel_job",
-            schemas.SPTX_CANCEL_JOB,
-            _tools.sptx_cancel_job,
-        ),
-        (
-            "sptx_list_jobs",
-            schemas.SPTX_LIST_JOBS,
-            _tools.sptx_list_jobs,
-        ),
-    ]
+    schemas = build_schemas()
+    handlers = build_handlers()
 
-    for name, schema, handler in _TOOLS:
+    missing = set(schemas) ^ set(handlers)
+    if missing:
+        raise RuntimeError(f"ClawSight: schema/handler mismatch for {sorted(missing)}")
+
+    for name, handler in sorted(handlers.items()):
         ctx.register_tool(
             name=name,
             toolset="clawsight",
-            schema=schema,
+            schema=schemas[name],
             handler=handler,
             is_async=True,
         )
+
+    logger.info(
+        "ClawSight: registered %d tools across %d engines (%s)",
+        len(handlers), len(ENGINES), ", ".join(sorted(ENGINES)),
+    )
