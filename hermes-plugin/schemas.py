@@ -133,12 +133,24 @@ TEMPLATES = {
 
 
 def build_schemas() -> dict[str, dict[str, Any]]:
-    """`{tool_name: json_schema}` for every engine x verb combination."""
-    return {
-        f"{name}_{verb}": template(engine)
-        for name, engine in ENGINES.items()
-        for verb, template in TEMPLATES.items()
-    }
+    """`{tool_name: tool_definition}` for every engine x verb combination.
+
+    Hermes expects the OpenAI-style envelope — it reads properties from
+    ``schema["parameters"]["properties"]`` (see tools/arg_coercion.py) — so the
+    templates return the bare JSON Schema and it gets wrapped here.
+    """
+    out: dict[str, dict[str, Any]] = {}
+    for name, engine in ENGINES.items():
+        for verb, template in TEMPLATES.items():
+            inner = template(engine)
+            description = inner.pop("description", "")
+            tool_name = f"{name}_{verb}"
+            out[tool_name] = {
+                "name": tool_name,
+                "description": description,
+                "parameters": inner,
+            }
+    return out
 
 
 __all__ = ["build_schemas", "TEMPLATES"]
