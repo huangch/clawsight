@@ -1,296 +1,219 @@
 # ClawSight
 
-**ClawSight** gives any AI agent full control over [WSInsight](https://github.com/huangch/wsinsight) — an end-to-end whole-slide image (WSI) pathology analysis toolkit. It enables Claude or any LLM to start, run, monitor, and stop GPU-accelerated pathology pipelines in natural language, with no manual CLI interaction required.
+**ClawSight** lets an AI agent run the whole [WSInsight](https://github.com/huangch/wsinsight)
+engine family in Docker. It manages container lifecycle and speaks MCP to the
+server inside each container, so an agent can start GPU pipelines, poll jobs and
+collect results in natural language.
 
-The WSInsight engine runs inside the official Docker image (`huangchtw/wsinsight:latest`). ClawSight manages the container lifecycle, speaks the MCP protocol to the server inside it, and exposes 34 agent-friendly tools across WSInsight and its spatial-transcriptomics sibling SptxInsight.
+Five engines are supported:
 
-Two agents are supported:
-
-| Agent | Plugin format | Install script |
-|---|---|---|
-| [OpenClaw](https://openclaw.ai) | TypeScript (`openclaw-plugin/dist/index.js`) | `./build4openclaw.sh` |
-| [Hermes Agent](https://github.com/NousResearch/hermes-agent) | Python (`hermes-plugin/`) | `./build4hermes.sh` |
+| Engine | What it does | GPU | Default port | Image |
+|---|---|---|---|---|
+| `wsinsight` | Whole-slide pathology: tissue segmentation, patching, GPU cell inference, neighborhood composition, niche discovery, GeoJSON/OME-CSV export | yes | 8765 | `huangchtw/wsinsight` |
+| `sptxinsight` | Spatial transcriptomics: AnnData ingest, cell typing, niche discovery, H-Plot, ligand–receptor (CCI) | yes | 8766 | `huangchtw/sptxinsight` |
+| `hplot` | Signed-distance boundary profiling: cluster-mass permutation tests, GAM effect sizes | no | 8767 | `huangchtw/hplot` |
+| `kurtorank` | Unsupervised subtype annotation and marker ranking for gene-limited panels | no | 8768 | `huangchtw/kurtorank` |
+| `wsitrain` | Headless end-to-end training of WSInsight CellViT heads | yes | 8769 | `huangchtw/wsitrain` |
 
 ---
 
-## What Can It Do?
+## Design: five tools per engine, nothing hard-coded
 
-ClawSight exposes **34 tools**: 16 `wsinsight_*` for the whole-slide pipeline and
-18 `sptx_*` for the SptxInsight spatial-transcriptomics sibling. Both halves
-follow the same shape — lifecycle, discovery, pipeline, jobs.
+ClawSight exposes **25 tools** — the same five for every engine:
 
-**Docker & Connection:**
-- Start the Docker container with configurable GPUs, port, and data directory
-- Stop and remove the container
-- Connect to the MCP server and verify it is reachable
-- Inspect the current plugin configuration
+| Tool | Purpose |
+|---|---|
+| `<engine>_start` | Start the container + MCP server, then discover its tools |
+| `<engine>_stop` | Stop and remove the container |
+| `<engine>_status` | Container state, MCP URL, tool count |
+| `<engine>_list_tools` | Live tool catalog; pass `tool=` for one tool's full input schema |
+| `<engine>_call` | Invoke any tool the container exposes |
 
-**Discovery:**
-- Query the live MCP server for its available tools and parameter schemas
+**Tool catalogs are discovered at run time, never hard-coded.** Whatever the
+installed image supports is what the agent can call, so a new CLI sub-command
+appears without touching ClawSight. Adding a whole new engine is one row in
+`hermes-plugin/engines.py`.
 
-**Pipeline (async — returns `job_id` immediately):**
-- `wsinsight_run` — full end-to-end pipeline: tissue segmentation → patch extraction → GPU inference → neighborhood composition → export
-- `wsinsight_patch` — tissue segmentation and HDF5 patch extraction
-- `wsinsight_infer` — GPU model inference on pre-extracted patches
-- `wsinsight_ncomp` — per-cell Delaunay graph neighborhood composition
-- `sptx_run`, `sptx_ingest`, `sptx_annotate`, `sptx_niche`, `sptx_hplot`, `sptx_cci` — the SptxInsight equivalents
-
-All pipeline commands support `--overwrite` (`"overwrite": true` in JSON) to regenerate existing outputs instead of skipping slides that already have results.
-
-**Pipeline (synchronous):**
-- `wsinsight_export` — export results to GeoJSON or OME-CSV
-- `wsinsight_reg` — spatial registration of two WSI regions
-- `wsinsight_agg` — cell-type aggregates (experimental)
-- `sptx_export`, `sptx_niche_profile`, `sptx_hplot_finalize`
-
-**Job management:**
-- Poll job status, stream log tail, cancel jobs, list all jobs — per engine
-
-> The OpenClaw plugin currently registers 29 of the 34: it has no Docker
-> lifecycle tools and no `wsinsight_agg`. Use the Hermes plugin when the agent
-> needs to start or stop the containers itself.
+This is deliberate: earlier versions duplicated every backend command as a
+hand-written schema, which drifted from the CLIs it wrapped.
 
 ---
 
 ## Architecture
 
 ```
-User (in OpenClaw or Hermes chat)
+Agent (Hermes / OpenClaw)
         │
+        │  <engine>_start / _call / _list_tools ...
         ▼
-  Agent Application
-  (OpenClaw  ·or·  Hermes Agent)
-        │
-        ▼
-  ClawSight Plugin
-  (openclaw-plugin/  ·or·  hermes-plugin/)
-        │ ← MCP 2025-03-26 Streamable HTTP
-        ▼
-  WSInsight MCP Server (inside Docker)
-  huangchtw/wsinsight:latest
-  wsinsight-mcp --http 0.0.0.0:8765
-        │
-        ▼
-  wsinsight CLI → GPU inference jobs
-  /workspace (= your data directory)
+   ClawSight plugin
+        │  docker run / stop            MCP Streamable HTTP
+        ├──────────────────────────►  container :8765  wsinsight-mcp
+        ├──────────────────────────►  container :8766  sptxinsight-mcp
+        ├──────────────────────────►  container :8767  hplot-mcp
+        ├──────────────────────────►  container :8768  kurtorank-mcp
+        └──────────────────────────►  container :8769  wsinsight-train-mcp
 ```
 
-ClawSight speaks the [MCP 2025-03-26 Streamable HTTP](https://spec.modelcontextprotocol.io/specification/2025-03-26/basic/transports/#streamable-http) transport directly (`POST /mcp`, SSE responses, `Mcp-Session-Id` session). The plugin manages the Docker container lifecycle locally; all heavy computation stays inside the container.
-
-**Key files:**
-- **`openclaw-plugin/src/index.ts`** — TypeScript plugin. Registers 29 tools with OpenClaw (no Docker-lifecycle tools, no `wsinsight_agg`).
-- **`openclaw-plugin/src/wsinsight-mcp-client.ts`** — `WsInsightMcpClient` class. MCP HTTP client + Docker helpers (TypeScript, native `fetch` + `child_process`).
-- **`openclaw-plugin/skills/clawsight/SKILL.md`** — Operating instructions for the AI (OpenClaw).
-- **`hermes-plugin/tools.py`** — `McpHttpClient` class + 34 async handler functions (Python, `httpx`).
-- **`hermes-plugin/schemas.py`** — JSON schemas the LLM sees when choosing tools.
-- **`hermes-plugin/skill.md`** — Operating instructions for the AI (Hermes).
-- **`start-wsinsight.sh`** — Helper script to start the Docker container.
-- **`stop-wsinsight.sh`** — Helper script to stop the Docker container.
+Each engine runs in its own container on its own port, so several can run
+concurrently — for example `wsinsight` producing cell tables while `hplot`
+analyses an earlier result.
 
 ---
 
 ## Prerequisites
 
-**Common (both agents):**
-- **Docker** with GPU support (`nvidia-container-toolkit`)
-- **NVIDIA GPU** (required for WSInsight model inference)
-
-**For OpenClaw:**
-- **OpenClaw** installed and running ([openclaw.ai](https://openclaw.ai))
-- **Node.js** and **npm** ([nodejs.org](https://nodejs.org))
+**Common:**
+- **Docker**; with `nvidia-container-toolkit` for the GPU engines
+- **NVIDIA GPU** for `wsinsight`, `sptxinsight`, `wsitrain` (`hplot` and
+  `kurtorank` are CPU-only)
 
 **For Hermes Agent:**
-- **Hermes Agent** installed ([github.com/NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent))
-- **Python 3.9+** with `pip install httpx` (handled automatically by `build4hermes.sh`)
+- [Hermes Agent](https://github.com/NousResearch/hermes-agent)
+- Python 3.11+ with `httpx` (installed by `build4hermes.sh`)
+
+**For OpenClaw:**
+- [OpenClaw](https://openclaw.ai) plus Node.js and npm
 
 ---
 
 ## Installation
 
-### Installing for OpenClaw
-
-```bash
-./build4openclaw.sh
-```
-
-`build4openclaw.sh` installs npm dependencies, compiles `src/` to `dist/index.js`, and registers the plugin with OpenClaw.
-
----
-
-### Installing for Hermes Agent
+### Hermes Agent
 
 ```bash
 ./build4hermes.sh
 ```
 
-`build4hermes.sh`:
-1. Installs `httpx` via `pip`
-2. Copies `hermes-plugin/` to `~/.hermes/plugins/clawsight/`
-3. Syntax-checks all Python files
-4. Reports registration status
+It installs `httpx`, copies `hermes-plugin/` to `~/.hermes/plugins/clawsight/`,
+syntax-checks the Python files and reports registration status. Restart Hermes
+afterwards if it is already running.
 
-The plugin is discovered by Hermes at startup. If Hermes is already running, restart it after installing.
+### OpenClaw
 
-**Configuration for Hermes** (optional — set in your shell or a `.env` file):
+```bash
+./build4openclaw.sh
+```
 
-| Variable | Default | Description |
-|---|---|---|
-| `WSINSIGHT_MCP_URL` | `http://127.0.0.1:8765/mcp` | MCP endpoint URL |
-| `WSINSIGHT_MCP_TIMEOUT_MS` | `300000` | Request timeout in ms (5 minutes) |
-| `WSINSIGHT_CONTAINER_NAME` | `clawsight-mcp` | Default Docker container name |
+> **Note:** the OpenClaw plugin still ships the older hard-coded tool surface
+> for `wsinsight` and `sptxinsight` only. The generic five-tools-per-engine
+> design described here is currently implemented in the Hermes plugin.
 
 ---
 
 ## Usage
 
-### Step 1 — Start the Docker container
+Start the container first — nothing else works until it is running.
 
-Use the helper script or ask the AI to call `wsinsight_start_docker`:
+```jsonc
+// 1. start (mounts /data/slides at /workspace inside the container)
+wsinsight_start({"data_dir": "/data/slides", "gpu_ids": "0"})
 
-```bash
-./start-wsinsight.sh -d /path/to/slides -g 0
+// 2. see what this image offers
+wsinsight_list_tools({})
+
+// 3. launch a pipeline — long-running tools return a job_id
+wsinsight_call({"tool": "run", "arguments": {
+    "wsi_dir": "/workspace/images",
+    "results_dir": "/workspace/out",
+    "model": "CellViT-SAM-H-x40"
+}})
+
+// 4. poll
+wsinsight_call({"tool": "job_status", "arguments": {"job_id": "01HZ..."}})
+wsinsight_call({"tool": "job_logs",   "arguments": {"job_id": "01HZ..."}})
+
+// 5. done
+wsinsight_stop({})
 ```
 
-**Script options:**
+### Paths are container paths
+
+`data_dir` is a **host** directory mounted at `/workspace`. After
+`wsinsight_start({"data_dir": "/data/slides"})`, the host file
+`/data/slides/images/a.svs` is `/workspace/images/a.svs` in every subsequent
+`_call`. Passing host paths to `_call` will fail.
+
+### Long-running vs immediate
+
+Pipeline tools (`run`, `patch`, `infer`, `ncomp`, `niche`, training stages, …)
+return a `job_id` immediately; poll with `job_status`, stream with `job_logs`,
+stop with `cancel_job`, enumerate with `list_jobs` — all via `<engine>_call`.
+Short tools (`export`, `reg`, `niche_profile`, …) block and return their result.
+
+### Discovering parameters
+
+Rather than guessing arguments, ask for the tool's own schema:
+
+```jsonc
+sptxinsight_list_tools({"tool": "niche"})   // full JSON input schema
 ```
-Usage: ./start-wsinsight.sh -d <data_dir> [options]
-
-  -d <data_dir>       Required. Host path mounted as /workspace inside the container.
-  -g <gpu_ids>        Comma-separated GPU IDs (e.g. 0,1). Default: all GPUs.
-  -p <port>           MCP HTTP port. Default: 8765.
-  -n <name>           Container name. Default: clawsight-mcp.
-  -c <max_concurrent> Max concurrent GPU jobs. Default: auto (= GPU count).
-  -e                  Enable experimental tools (hplot/ecomp/tcomp/niche/niche-profile).
-  -h                  Show help and exit.
-```
-
-Or let the AI do it — paste this into the agent chat:
-
-```
-Start WSInsight with data directory /path/to/slides on GPU 0.
-```
-
-### Step 2 — Verify the connection
-
-Wait ~5 seconds after starting the container, then:
-
-```
-Connect to WSInsight and show available tools.
-```
-
-The AI calls `wsinsight_connect` followed by `wsinsight_list_tools`.
-
-### Step 3 — Run a pipeline
-
-```
-Run a full WSInsight analysis on sample.svs using the
-breast-tumor-resnet34.tcga-brca model and save results to results/.
-```
-
-The AI calls `wsinsight_run` with the appropriate arguments, then polls `wsinsight_job_status` until the job is done.
-
-### Step 4 — Stop the container
-
-```bash
-./stop-wsinsight.sh
-```
-
-Or ask the AI: `Stop the WSInsight container.`
 
 ---
 
-## Tool Reference
+## Configuration
 
-| Tool | Category | Returns |
+Every default is overridable per engine; all are optional.
+
+| Variable | Example | Description |
 |---|---|---|
-| `wsinsight_server_info` | Connection | Current config (URL, container, timeout, session state) |
-| `wsinsight_connect` | Connection | Server name, version, protocol version |
-| `wsinsight_start_docker` | Docker | Container ID and MCP URL |
-| `wsinsight_stop_docker` | Docker | Confirmation |
-| `wsinsight_list_tools` | Discovery | All MCP server tools with param schemas |
-| `wsinsight_run` | Pipeline | `job_id` (async) |
-| `wsinsight_patch` | Pipeline | `job_id` (async) |
-| `wsinsight_infer` | Pipeline | `job_id` (async) |
-| `wsinsight_ncomp` | Pipeline | `job_id` (async) |
-| `wsinsight_export` | Pipeline | Exit status + log tail (sync) |
-| `wsinsight_reg` | Pipeline | Exit status + log tail (sync) |
-| `wsinsight_job_status` | Job mgmt | Status, elapsed time, progress snippet |
-| `wsinsight_job_logs` | Job mgmt | Last N log lines |
-| `wsinsight_cancel_job` | Job mgmt | Confirmation |
-| `wsinsight_list_jobs` | Job mgmt | Table of all jobs with status |
+| `CLAWSIGHT_<ENGINE>_IMAGE` | `huangchtw/wsinsight:v1.2` | Pin a specific image tag |
+| `CLAWSIGHT_<ENGINE>_PORT` | `9765` | Host/container port |
+| `CLAWSIGHT_<ENGINE>_CONTAINER` | `my-wsinsight` | Container name |
+| `CLAWSIGHT_<ENGINE>_MCP_URL` | `http://host:8765/mcp` | Talk to an already-running server, skipping Docker |
+| `CLAWSIGHT_<ENGINE>_TIMEOUT_MS` | `600000` | Request timeout |
 
-### Pipeline tool arguments
+`<ENGINE>` is the engine name upper-cased, e.g. `CLAWSIGHT_WSINSIGHT_PORT`.
 
-Pipeline tools (`run`, `patch`, `infer`, `ncomp`, `export`, `reg`) accept a free-form `arguments` JSON object. The agent discovers the exact parameter names and types by calling `wsinsight_list_tools` first — the plugin queries the live MCP server rather than hard-coding schemas, so it stays in sync with every WSInsight version automatically.
+### File ownership
 
-All file paths inside `arguments` must be **relative to `/workspace`**, which is the `data_dir` you passed to `wsinsight_start_docker`.
-
-**Memory-constrained environments:**
-
-If DataLoader workers are killed by the system OOM killer (common in containers or shared servers), pass these arguments to `wsinsight_run` or `wsinsight_infer`:
-
-```json
-{
-  "wsi_dir": "/workspace/slides",
-  "results_dir": "/workspace/results",
-  "model": "CellViT-SAM-H-x40",
-  "pin_memory": false,
-  "num_workers": 2
-}
-```
-
-`batch_size` is now **auto-calibrated from available GPU VRAM by default** (two-point memory measurement runs at startup). Omit it unless you need to cap memory use. WSInsight also automatically recovers from worker death by disabling `pin_memory` and reducing `num_workers` on retry.
-
-### Async job polling pattern
-
-Long-running tools return immediately:
-
-```json
-{ "job_id": "abc123", "status": "started", "hint": "Poll job_status(job_id='abc123')" }
-```
-
-Poll until done:
-
-```
-wsinsight_job_status({ "job_id": "abc123" })
-→ { "status": "running", "elapsed_s": 42, ... }
-
-wsinsight_job_status({ "job_id": "abc123" })
-→ { "status": "done", "elapsed_s": 187 }
-```
-
-Retrieve logs at any time:
-
-```
-wsinsight_job_logs({ "job_id": "abc123", "tail": 100 })
-```
+`_start` passes your `HOST_UID`/`HOST_GID` into the container, which remaps its
+baked-in `user` (uid 1000) to you and drops privileges. Outputs are therefore
+owned by you, not root. If files still come out root-owned, the mounted
+directory was root-owned to begin with.
 
 ---
 
-## Experimental Tools
+## Experimental tools
 
-When the container is started with `-e` (`./start-wsinsight.sh -e -d /data`), additional experimental tools become available via the MCP server:
+`wsinsight` and `sptxinsight` hide some sub-commands unless started with
+`experimental: true` (the default for both) — for wsinsight that adds `hplot`,
+`ecomp`, `tcomp`, `niche`, `niche_profile`, `import` and `agg`; for sptxinsight
+`hplot`, `hplot_finalize` and `cci`. `hplot`, `kurtorank` and `wsitrain` have no
+such split.
 
-| Tool | Description |
-|---|---|
-| `hplot` | H-plot computation (supports `--base-by` / `--target-by` `celltype` \| `niche` \| `aggregate` to plot a discovered niche or aggregate across layers) |
-| `hplot-finalize` | Finalize H-plot output |
-| `ecomp` | Edge composition analysis |
-| `tcomp` | Triad composition analysis |
-| `niche` | Niche clustering (pass `--export-geojson` for GeoJSON output; `--epochs` caps DGI training epochs; `--hoptimus` adds H-Optimus morphology features; `--hoptimus-batch-size` caps H-Optimus GPU batch size — **auto-calibrated by default**, omit unless sharing the GPU; `--hoptimus-only` uses morphology features only; output uses `niche_id` integer column instead of one-hot `niche_0`…`niche_N`) |
-| `niche-profile` | Summarise each niche by its dominant cell types |
-| `agg` | Cell-type aggregate analysis (e.g. T+B cells → tertiary lymphoid structures) |
-| `import` | Import Xenium spatial-transcriptomics onto WSInsight cells |
+---
 
-These appear automatically in `wsinsight_list_tools` output when enabled — no plugin changes required.
+## Development
+
+```
+hermes-plugin/
+├── engines.py     the registry — one row per engine, the only place to add one
+├── mcpclient.py   MCP 2025-03-26 Streamable HTTP client + Docker helpers
+├── tools.py       five handler factories, engine-agnostic
+├── schemas.py     five schema templates, generated from the registry
+├── __init__.py    registration loop
+├── tools_sync.py  regenerates plugin.yaml from the registry
+└── SKILL.md       agent-facing usage guide
+```
+
+`plugin.yaml`'s `provides_tools` list is generated, never edited by hand:
+
+```bash
+python hermes-plugin/tools_sync.py --check   # exit 1 on drift
+python hermes-plugin/tools_sync.py           # rewrite it
+```
 
 ---
 
 ## Relationship to ClawPyter
 
-[ClawPyter](https://github.com/huangch/clawpyter) and ClawSight are complementary:
+[ClawPyter](https://github.com/huangch/clawpyter) and ClawSight are
+complementary:
 
-- **ClawPyter** gives the agent control over a JupyterLab notebook kernel (Python REPL).
-- **ClawSight** gives the agent control over GPU-scale WSI pathology analysis pipelines.
+- **ClawPyter** gives the agent a JupyterLab kernel (Python REPL).
+- **ClawSight** gives the agent GPU-scale pipelines in Docker.
 
-Used together, an agent can run WSInsight jobs via ClawSight, then load and visualize the GeoJSON/CSV results in a ClawPyter notebook — all in a single conversation.
+Together, an agent can run a WSInsight job through ClawSight, then load and
+visualise the resulting GeoJSON/CSV in a ClawPyter notebook — in one
+conversation.
