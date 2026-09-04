@@ -1,11 +1,28 @@
+import { execFile } from "node:child_process";
 import { Type } from "@sinclair/typebox";
 import { WsInsightMcpClient } from "./wsinsight-mcp-client.js";
 
 const DEFAULT_PORT  = 8765;
 const DEFAULT_CNAME = "clawsight-mcp";
+const DOCKER_IMAGE  = "huangchtw/wsinsight:latest";
 
 const SPTX_DEFAULT_PORT  = 8766;
 const SPTX_DEFAULT_CNAME = "clawsight-sptx-mcp";
+const SPTX_DOCKER_IMAGE  = "huangchtw/sptxinsight:latest";
+
+/** Run one `docker` sub-command. Never throws: the caller reports the code. */
+function docker(args: string[], timeoutMs: number): Promise<{ code: number; out: string }> {
+  return new Promise((resolve) => {
+    execFile("docker", args, { timeout: timeoutMs }, (err, stdout, stderr) => {
+      const out = (stdout || "").trim() || (stderr || "").trim();
+      if (!err) return resolve({ code: 0, out });
+      const code = typeof (err as { code?: unknown }).code === "number"
+        ? (err as { code: number }).code
+        : -1;
+      resolve({ code, out: out || String(err) });
+    });
+  });
+}
 
 type PluginConfig = {
   mcpUrl?:        string;
@@ -237,6 +254,135 @@ export default function register(api: unknown) {
     ),
   );
 
+  // ── Docker lifecycle ──────────────────────────────────────────────────────
+  // The MCP client speaks HTTP only, so starting the engine is a plain
+  // `docker` call rather than anything routed through the server.
+  function registerDockerTools(engine: {
+    prefix: string;
+    image: string;
+    defaultPort: number;
+    getCname: () => string;
+    onStarted: (port: number, name: string) => void;
+    onStopped: () => void;
+  }): void {
+    const { prefix, image, defaultPort } = engine;
+
+    a.registerTool(
+      {
+        name: `${prefix}_start_docker`,
+        description:
+          `Start the ${prefix} Docker container and run its MCP server inside. ` +
+          "Replaces any container of the same name. Wait a few seconds, then " +
+          `call ${prefix}_connect to verify.`,
+        parameters: Type.Object({
+          data_dir: Type.String({
+            description: "Host directory to mount at /workspace. Required.",
+          }),
+          gpu_ids: Type.Optional(
+            Type.String({ description: "GPU ids, e.g. '0,1'. Default: all." }),
+          ),
+          mcp_port: Type.Optional(
+            Type.Number({ description: `Host and container port (default ${defaultPort}).` }),
+          ),
+          container_name: Type.Optional(Type.String()),
+          max_concurrent: Type.Optional(Type.Number()),
+          experimental: Type.Optional(
+            Type.Boolean({ description: "Expose the experimental subcommands." }),
+          ),
+        }),
+        async execute(_id: string, params: Record<string, unknown>) {
+          console.log("Tool execution:", { name: `${prefix}_start_docker`, params, _id });
+          const dataDir = String(params.data_dir ?? "").trim();
+          if (!dataDir) {
+            return WsInsightMcpClient.asText("Error", "[ERROR] 'data_dir' is required");
+          }
+          const port = Number(params.mcp_port ?? defaultPort);
+          const name = String(params.container_name ?? engine.getCname()).trim();
+          const gpus = String(params.gpu_ids ?? "").trim();
+          const gpuFlag = gpus ? `device=${gpus}` : "all";
+
+          let cmd = `${prefix === "sptx" ? "sptxinsight" : "wsinsight"}-mcp --http 0.0.0.0:${port}`;
+          if (params.experimental) cmd += " --experimental";
+          if (typeof params.max_concurrent === "number") {
+            cmd += ` --max-concurrent ${params.max_concurrent}`;
+          }
+
+          await docker(["stop", name], 20_000);
+          await docker(["rm", name], 20_000);
+          const res = await docker(
+            ["run", "-d", "--name", name, "--gpus", gpuFlag, "--shm-size=32g",
+             "--init", "-p", `${port}:${port}`, "-v", `${dataDir}:/workspace`,
+             image, "bash", "-lc", cmd],
+            120_000,
+          );
+          if (res.code !== 0) {
+            return WsInsightMcpClient.asText(
+              "Start failed", `[ERROR] docker run exited ${res.code}:\n${res.out}`);
+          }
+          engine.onStarted(port, name);
+          return WsInsightMcpClient.asText(
+            "Container started",
+            [`Name:    ${name} (${res.out.slice(0, 12)})`,
+             `Data:    ${dataDir} → /workspace`,
+             `GPUs:    ${gpuFlag}`,
+             "",
+             `Wait ~5 seconds, then call ${prefix}_connect to verify.`].join("\n"),
+          );
+        },
+      },
+      OPT,
+    );
+
+    a.registerTool(
+      {
+        name: `${prefix}_stop_docker`,
+        description: `Stop and remove the ${prefix} Docker container.`,
+        parameters: Type.Object({
+          container_name: Type.Optional(Type.String()),
+        }),
+        async execute(_id: string, params: Record<string, unknown>) {
+          console.log("Tool execution:", { name: `${prefix}_stop_docker`, params, _id });
+          const name = String(params.container_name ?? engine.getCname()).trim();
+          const stopped = await docker(["stop", name], 30_000);
+          await docker(["rm", name], 30_000);
+          engine.onStopped();
+          if (stopped.code === 0) {
+            return WsInsightMcpClient.asText(
+              "Container stopped", `Container '${name}' stopped and removed.`);
+          }
+          return WsInsightMcpClient.asText(
+            "Container stopped",
+            `[WARN] docker stop exited ${stopped.code}. It may already be stopped.`);
+        },
+      },
+      OPT,
+    );
+  }
+
+  registerDockerTools({
+    prefix: "wsinsight",
+    image: DOCKER_IMAGE,
+    defaultPort: DEFAULT_PORT,
+    getCname: () => cname,
+    onStarted: (port, name) => {
+      cname = name;
+      rebuildClient(`http://127.0.0.1:${port}/mcp`);
+    },
+    onStopped: () => client.reset(),
+  });
+
+  registerDockerTools({
+    prefix: "sptx",
+    image: SPTX_DOCKER_IMAGE,
+    defaultPort: SPTX_DEFAULT_PORT,
+    getCname: () => sptxCname,
+    onStarted: (port, name) => {
+      sptxCname = name;
+      rebuildSptxClient(`http://127.0.0.1:${port}/mcp`);
+    },
+    onStopped: () => sptxClient.reset(),
+  });
+
   type PipelineTool = {
     toolName: string;
     desc: string;
@@ -284,6 +430,13 @@ export default function register(api: unknown) {
     {
       toolName: "reg",
       desc: "Register (spatially align) two WSI regions. Runs synchronously.",
+      isAsync: false,
+    },
+    {
+      toolName: "agg",
+      desc:
+        "Experimental: aggregate cell-type neighbourhoods (e.g. TLS). " +
+        "Runs synchronously; needs the server started with --experimental.",
       isAsync: false,
     },
   ];

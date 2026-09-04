@@ -2,7 +2,7 @@
 
 **ClawSight** gives any AI agent full control over [WSInsight](https://github.com/huangch/wsinsight) — an end-to-end whole-slide image (WSI) pathology analysis toolkit. It enables Claude or any LLM to start, run, monitor, and stop GPU-accelerated pathology pipelines in natural language, with no manual CLI interaction required.
 
-The WSInsight engine runs inside the official Docker image (`huangchtw/wsinsight:latest`). ClawSight manages the container lifecycle, speaks the MCP protocol to the server inside it, and exposes 15 agent-friendly tools.
+The WSInsight engine runs inside the official Docker image (`huangchtw/wsinsight:latest`). ClawSight manages the container lifecycle, speaks the MCP protocol to the server inside it, and exposes 34 agent-friendly tools across WSInsight and its spatial-transcriptomics sibling SptxInsight.
 
 Two agents are supported:
 
@@ -15,10 +15,12 @@ Two agents are supported:
 
 ## What Can It Do?
 
-ClawSight exposes **15 tools** covering the full WSInsight pipeline:
+ClawSight exposes **34 tools**: 16 `wsinsight_*` for the whole-slide pipeline and
+18 `sptx_*` for the SptxInsight spatial-transcriptomics sibling. Both halves
+follow the same shape — lifecycle, discovery, pipeline, jobs.
 
 **Docker & Connection:**
-- Start the WSInsight Docker container with configurable GPUs, port, and data directory
+- Start the Docker container with configurable GPUs, port, and data directory
 - Stop and remove the container
 - Connect to the MCP server and verify it is reachable
 - Inspect the current plugin configuration
@@ -31,15 +33,22 @@ ClawSight exposes **15 tools** covering the full WSInsight pipeline:
 - `wsinsight_patch` — tissue segmentation and HDF5 patch extraction
 - `wsinsight_infer` — GPU model inference on pre-extracted patches
 - `wsinsight_ncomp` — per-cell Delaunay graph neighborhood composition
+- `sptx_run`, `sptx_ingest`, `sptx_annotate`, `sptx_niche`, `sptx_hplot`, `sptx_cci` — the SptxInsight equivalents
 
 All pipeline commands support `--overwrite` (`"overwrite": true` in JSON) to regenerate existing outputs instead of skipping slides that already have results.
 
 **Pipeline (synchronous):**
 - `wsinsight_export` — export results to GeoJSON or OME-CSV
 - `wsinsight_reg` — spatial registration of two WSI regions
+- `wsinsight_agg` — cell-type aggregates (experimental)
+- `sptx_export`, `sptx_niche_profile`, `sptx_hplot_finalize`
 
 **Job management:**
-- Poll job status, stream log tail, cancel jobs, list all jobs
+- Poll job status, stream log tail, cancel jobs, list all jobs — per engine
+
+> The OpenClaw plugin currently registers 29 of the 34: it has no Docker
+> lifecycle tools and no `wsinsight_agg`. Use the Hermes plugin when the agent
+> needs to start or stop the containers itself.
 
 ---
 
@@ -69,10 +78,10 @@ User (in OpenClaw or Hermes chat)
 ClawSight speaks the [MCP 2025-03-26 Streamable HTTP](https://spec.modelcontextprotocol.io/specification/2025-03-26/basic/transports/#streamable-http) transport directly (`POST /mcp`, SSE responses, `Mcp-Session-Id` session). The plugin manages the Docker container lifecycle locally; all heavy computation stays inside the container.
 
 **Key files:**
-- **`openclaw-plugin/src/index.ts`** — TypeScript plugin. Registers all 15 tools with OpenClaw.
+- **`openclaw-plugin/src/index.ts`** — TypeScript plugin. Registers 29 tools with OpenClaw (no Docker-lifecycle tools, no `wsinsight_agg`).
 - **`openclaw-plugin/src/wsinsight-mcp-client.ts`** — `WsInsightMcpClient` class. MCP HTTP client + Docker helpers (TypeScript, native `fetch` + `child_process`).
 - **`openclaw-plugin/skills/clawsight/SKILL.md`** — Operating instructions for the AI (OpenClaw).
-- **`hermes-plugin/tools.py`** — `McpHttpClient` class + 15 async handler functions (Python, `httpx`).
+- **`hermes-plugin/tools.py`** — `McpHttpClient` class + 34 async handler functions (Python, `httpx`).
 - **`hermes-plugin/schemas.py`** — JSON schemas the LLM sees when choosing tools.
 - **`hermes-plugin/skill.md`** — Operating instructions for the AI (Hermes).
 - **`start-wsinsight.sh`** — Helper script to start the Docker container.
