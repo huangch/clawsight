@@ -5,8 +5,7 @@ set -euo pipefail
 PLUGIN_SRC="$(cd "$(dirname "$0")/hermes-plugin" && pwd)"
 PLUGIN_DEST="$HOME/.hermes/plugins/clawsight"
 
-echo "==> Installing Python dependencies (httpx)..."
-pip install --quiet httpx
+echo "==> ClawSight has no required Python deps (only stdlib + PyYAML, which ships in the Hermes Agent runtime env) — see hermes-plugin/__init__.py imports."
 
 echo "==> Copying plugin to $PLUGIN_DEST..."
 rm -rf "$PLUGIN_DEST"
