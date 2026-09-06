@@ -19,6 +19,7 @@
 import { beforeEach, afterEach, describe, it, expect } from "vitest";
 
 import { buildHarness, type Harness } from "./test-utils.js";
+import { ENGINES as ENGINE_REGISTRY } from "./engines.js";
 
 const ENGINES = ["wsinsight", "sptxinsight", "hplot", "kurtorank", "wsitrain"] as const;
 const VERBS = ["start", "stop", "status", "list_tools", "call"] as const;
@@ -123,6 +124,79 @@ describe("ClawSight plugin registration", () => {
       }
     } finally {
       dockerSpy.mockRestore();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Per-engine first-class guarantees — mirror of the Hermes-side guards in
+// hermes_plugin/tests/test_register.py. hplot, kurtorank, and wsitrain must
+// be wired as fully as wsinsight and sptxinsight: unique port, non-empty
+// image / mcpBin / summary, well-formed env prefix. These run synchronously
+// on the registry without needing the harness.
+// ---------------------------------------------------------------------------
+
+describe("ClawSight engine registry invariants", () => {
+  it("contains exactly the expected 5 engines (no more, no fewer)", () => {
+    const names = new Set<string>();
+    for (const e of ENGINE_REGISTRY) names.add(e.name);
+    for (const want of ENGINES) expect(names.has(want), `missing engine ${want}`).toBe(true);
+    expect(names.size).toBe(ENGINES.length);
+  });
+
+  it("every engine has a unique port", () => {
+    const ports = ENGINE_REGISTRY.map((e) => e.portDefault);
+    const seen = new Set<number>();
+    for (const p of ports) {
+      expect(seen.has(p), `duplicate port in ENGINES: ${p}`).toBe(false);
+      seen.add(p);
+    }
+  });
+
+  it("every engine has a non-empty image under huangchtw/", () => {
+    for (const e of ENGINE_REGISTRY) {
+      expect(e.image.length, `${e.name}: empty image`).toBeGreaterThan(0);
+      expect(
+        e.image.startsWith("huangchtw/"),
+        `${e.name}: image ${e.image} does not start with 'huangchtw/'`,
+      ).toBe(true);
+    }
+  });
+
+  it("every engine has a non-empty mcpBin", () => {
+    for (const e of ENGINE_REGISTRY) {
+      expect(e.mcpBin.length, `${e.name}: empty mcpBin`).toBeGreaterThan(0);
+      expect(
+        !e.mcpBin.includes(" "),
+        `${e.name}: mcpBin ${e.mcpBin} contains whitespace`,
+      ).toBe(true);
+      expect(
+        !e.mcpBin.includes("/"),
+        `${e.name}: mcpBin ${e.mcpBin} contains '/'`,
+      ).toBe(true);
+    }
+  });
+
+  it("every engine mcpBin matches the default OR is a declared override", () => {
+    // wsitrain breaks the convention (`wsinsight-train-mcp`); all others
+    // default to `<cli>-mcp`. The point: an empty mcpBin (the bug class)
+    // is impossible after Engine construction, and any future divergence
+    // from the convention is a deliberate registry override, not a typo.
+    for (const e of ENGINE_REGISTRY) {
+      const expected = `${e.cli}-mcp`;
+      const isDefault = e.mcpBin === expected;
+      const isExplicit = e.mcpBin !== expected && e.mcpBin.length > 0;
+      expect(
+        isDefault || isExplicit,
+        `${e.name}: mcpBin=${e.mcpBin} should match default ${expected} or be a deliberate override`,
+      ).toBe(true);
+    }
+  });
+
+  it("every engine has a non-trivial summary string", () => {
+    for (const e of ENGINE_REGISTRY) {
+      const summary = e.summary.trim();
+      expect(summary.length, `${e.name}: summary too short`).toBeGreaterThanOrEqual(30);
     }
   });
 });

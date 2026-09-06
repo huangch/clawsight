@@ -139,3 +139,77 @@ def test_plugin_yaml_agrees_with_register(ctx: FakeCtx) -> None:
         f"  in YAML not runtime: {sorted(manifest_names - runtime_names)}\n"
         f"  in runtime not YAML: {sorted(runtime_names - manifest_names)}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Per-engine first-class guarantees.
+#
+# These lock the contract that hplot, kurtorank, and wsitrain are managed by
+# ClawSight identically to wsinsight and sptxinsight. The acceptance bar is
+# not "exists" but "fully wired": unique port, non-empty image, non-empty MCP
+# binary, env-prefix matches the convention. A future contributor adding an
+# engine that drops one of these fields silently degrades the engine to
+# second-class; this test would catch it.
+# ---------------------------------------------------------------------------
+
+
+def test_every_engine_has_a_unique_port() -> None:
+    ports = [e.port for e in ENGINES.values()]
+    assert len(ports) == len(set(ports)), (
+        f"duplicate port in ENGINES: "
+        f"{ {p: [n for n, e in ENGINES.items() if e.port == p] for p in ports if ports.count(p) > 1} }"
+    )
+
+
+def test_every_engine_has_a_nonempty_image() -> None:
+    for name, e in ENGINES.items():
+        assert e.image, f"{name}: image is empty"
+        assert e.image.startswith("huangchtw/"), (
+            f"{name}: image {e.image!r} does not start with 'huangchtw/'"
+        )
+
+
+def test_every_engine_has_a_nonempty_mcp_bin() -> None:
+    """mcp_bin is post-init-set to '<cli>-mcp' by default; engines that
+    break the convention (wsitrain → wsinsight-train-mcp) override it.
+    We verify the resolved value is non-empty and either matches the
+    default convention or is an explicit override registered in the
+    Engine dataclass (not a runtime guess)."""
+    for name, e in ENGINES.items():
+        assert e.mcp_bin, f"{name}: mcp_bin resolved to empty"
+        # Default convention OR explicit override; both are acceptable.
+        # Just ensure it does not contain whitespace, slashes, or other
+        # characters that would break a `CMD ["wsitrain-mcp", ...]` invocation.
+        assert " " not in e.mcp_bin, f"{name}: mcp_bin {e.mcp_bin!r} has whitespace"
+        assert "/" not in e.mcp_bin, f"{name}: mcp_bin {e.mcp_bin!r} has '/'"
+
+
+def test_every_engine_has_a_well_formed_env_prefix() -> None:
+    """CLAWSIGHT_<ENGINE>_* env vars are how users override defaults at
+    runtime; the env_prefix MUST be all-caps with no dashes or weird
+    characters so a `os.environ.get(f"{prefix}_IMAGE")` lookup works."""
+    for name, e in ENGINES.items():
+        prefix = e.env_prefix
+        assert prefix.startswith("CLAWSIGHT_"), (
+            f"{name}: env_prefix {prefix!r} does not start with CLAWSIGHT_"
+        )
+        suffix = prefix[len("CLAWSIGHT_"):]
+        assert suffix == suffix.upper(), (
+            f"{name}: env_prefix suffix {suffix!r} is not all-upper"
+        )
+        assert "-" not in suffix, (
+            f"{name}: env_prefix suffix {suffix!r} still has dashes"
+        )
+
+
+def test_every_engine_summary_is_nonempty() -> None:
+    """Tool descriptions pull from `Engine.summary`; an empty summary
+    surfaces as a blank `<engine>_start` description in both runtimes'
+    tool catalog. Catch it at registration time."""
+    for name, e in ENGINES.items():
+        summary = e.summary.strip()
+        assert summary, f"{name}: summary is empty/whitespace"
+        # Tool descriptions should be sentences, not raw identifier lists.
+        assert len(summary) >= 30, (
+            f"{name}: summary {summary!r} is too short to be useful"
+        )

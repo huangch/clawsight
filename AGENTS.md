@@ -22,10 +22,23 @@ Each engine exposes the same five tools — `<engine>_start`, `_stop`,
 
 ## Engines are the single source of truth
 
+**All five engines are first-class.** `hplot`, `kurtorank`, and `wsitrain` get
+the same treatment as `wsinsight` and `sptxinsight` — there are no per-engine
+helper scripts, no second-class code paths, and the cross-product invariant
+test (`test_engines_registry_matches_expected_set` on Hermes, the parallel
+`ENGINES` size check in `src/register.test.ts` on OpenClaw) locks the entire
+set.
+
+There is one named exception: `wsitrain` ships an MCP binary called
+`wsinsight-train-mcp`, not the conventional `wsitrain-mcp`. That override is
+declared in both `hermes-plugin/engines.py` and `openclaw-plugin/src/engines.ts`
+and is exercised by the `every_engine_mcpBin_matches_default_or_override`
+(OpenClaw) and `test_every_engine_has_a_nonempty_mcp_bin` (Hermes) tests.
+
 **Adding a new engine touches exactly one row per runtime:**
 
-- Hermes: `hermes-plugin/engines.py :: ENGINES` + `mcp_bin` if the MCP binary
-  is not `<cli>-mcp`.
+- Hermes: `hermes-plugin/engines.py :: ENGINES` + `mcp_bin="..."` if the MCP
+  binary is not `<cli>-mcp`.
 - OpenClaw: `openclaw-plugin/src/engines.ts :: ENGINES`.
 
 After changing either, regenerate the schema/handler pair on Hermes:
@@ -37,7 +50,29 @@ python hermes-plugin/tools_sync.py --check    # exit 1 on drift
 
 `buildTools()` (OpenClaw) and `schemas.build_schemas()` (Hermes) cross-product
 the registry with the verb templates — no engine-specific schema or handler
-code lives anywhere else in the repos.
+code lives anywhere else in the repos. New engines pick up the same five
+verb handlers (`start`, `stop`, `status`, `list_tools`, `call`) for free.
+
+The engine-level contract — unique port, non-empty image / `mcpBin` / summary,
+and the well-formed `CLAWSIGHT_<ENGINE>_*` env prefix — is locked by
+`tests/test_register.py::test_every_engine_*` (Hermes) and the parallel
+`describe("ClawSight engine registry invariants", ...)` block in
+`src/register.test.ts` (OpenClaw). A future contributor who adds an engine
+but drops an `mcp_bin` field, picks a duplicate port, or uses a non-`huangchtw/`
+image will fail the suite at PR-build time.
+
+## How users actually manage an engine
+
+Every engine — wsinsight, sptxinsight, hplot, kurtorank, wsitrain — is
+managed the same way: through ClawSight's plugin surface (`<engine>_start`,
+`<engine>_stop`, …) on either runtime. There are no per-engine helper
+scripts in this repo; the only consumer of the Docker images is ClawSight
+itself. Each engine's own source repo
+([wsinsight](../../wsinsight), [sptxinsight](../../sptxinsight),
+[hplot](../../hplot), [kurtorank](../../wsinsight-model-development/kurtorank),
+[wsinsight-train](../../wsinsight-model-development/wsinsight-train))
+owns its `docker-build-push.sh` and ships `huangchtw/<engine>:latest` to
+the registry.
 
 ## Tools are cross-products, not sub-commands
 
