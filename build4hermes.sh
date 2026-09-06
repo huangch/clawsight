@@ -18,6 +18,17 @@ for f in __init__ schemas tools; do
   echo "    OK: ${f}.py"
 done
 
+echo "==> Running pytest (cross-product + manifest parity)..."
+# The dev-only `hermes_plugin` symlink is required for pytest to import
+# the dashed source-of-truth path. We create it locally before running
+# pytest on the source tree (build4hermes.sh is run from the repo root).
+SYM="$PLUGIN_SRC/../hermes_plugin"
+if [[ ! -e "$SYM" ]]; then
+  ln -sf hermes-plugin "$SYM"
+  echo "    (created symlink hermes_plugin -> hermes-plugin)"
+fi
+(cd "$PLUGIN_SRC/.." && python3 -m pytest -q)
+
 echo "==> Plugin installed."
 hermes plugins list 2>/dev/null | grep -q clawsight \
   && echo "    clawsight is registered." \

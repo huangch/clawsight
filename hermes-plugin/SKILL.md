@@ -278,3 +278,14 @@ CLAWSIGHT_<ENGINE>_TIMEOUT_MS  default 300000
 
 Use `CLAWSIGHT_<ENGINE>_MCP_URL` when the user already runs a server outside
 Docker — then skip `_start` entirely and go straight to `_list_tools`.
+
+---
+
+## See also
+
+- `openclaw-plugin/skills/clawsight/SKILL.md` — OpenClaw runtime counterpart
+  (the tool surface is identical; this file and the OpenClaw one MUST stay
+  in sync on tool names, parameter vocabulary, and lifecycle guidance — see
+  `AGENTS.md` SKILL.md sync rule).
+- `hermes-plugin/engines.py` — the engine registry that drives both schema
+  and handler generation on the Hermes side.

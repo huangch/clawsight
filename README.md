@@ -95,9 +95,11 @@ afterwards if it is already running.
 ./build4openclaw.sh
 ```
 
-> **Note:** the OpenClaw plugin still ships the older hard-coded tool surface
-> for `wsinsight` and `sptxinsight` only. The generic five-tools-per-engine
-> design described here is currently implemented in the Hermes plugin.
+The OpenClaw plugin is **engine-agnostic**: it mirrors the Hermes plugin
+exactly — same five-tools-per-engine surface for every backend in
+`openclaw-plugin/src/engines.ts`. Add a row there and you get the matching
+`<engine>_start` / `_stop` / `_status` / `_list_tools` / `_call` tools with
+no other code changes.
 
 ---
 
@@ -195,6 +197,18 @@ hermes-plugin/
 ├── __init__.py    registration loop
 ├── tools_sync.py  regenerates plugin.yaml from the registry
 └── SKILL.md       agent-facing usage guide
+
+openclaw-plugin/
+├── src/
+│   ├── engines.ts      mirror of engines.py
+│   ├── docker.ts       port of _docker() helper
+│   ├── mcp-client.ts   MCP 2025-03-26 Streamable HTTP client (engine-agnostic)
+│   ├── handlers.ts     start / stop / status / list_tools / call factories
+│   ├── schemas.ts      schema templates + TypeBox conversion
+│   └── index.ts        loop over ENGINES × verbs, register 25 tools
+├── skills/clawsight/SKILL.md   agent-facing usage guide (must stay in sync)
+├── openclaw.plugin.json        manifest (compat metadata, no per-engine config)
+└── package.json
 ```
 
 `plugin.yaml`'s `provides_tools` list is generated, never edited by hand:
