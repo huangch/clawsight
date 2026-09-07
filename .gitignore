@@ -12,3 +12,6 @@ venv/
 # Python-importable alias of `hermes-plugin/` (dashed names can't be imported).
 # Created at test time so pytest can run as `pytest hermes_plugin/tests/`.
 hermes_plugin
+
+# Per-machine VS Code workspace settings; not part of the project.
+.vscode/
