@@ -1,36 +1,12 @@
 {
   "id": "clawsight",
   "name": "ClawSight",
-  "description": "WSInsight + sptxinsight pathology & spatial-transcriptomics AI via Docker MCP servers — tissue segmentation, GPU inference, spatial analytics, cell typing, niche discovery, and export",
+  "description": "Engine-agnostic Docker plugin that exposes wsinsight / sptxinsight / hplot / kurtorank / wsitrain as 5 MCP tools each (start / stop / status / list_tools / call). Per-engine defaults can be overridden via CLAWSIGHT_<ENGINE>_IMAGE / _PORT / _CONTAINER / _MCP_URL / _TIMEOUT_MS environment variables.",
   "skills": ["skills/clawsight"],
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
-    "properties": {
-      "mcpUrl": {
-        "type": "string",
-        "description": "WSInsight MCP endpoint URL. Default: http://127.0.0.1:8765/mcp"
-      },
-      "timeoutMs": {
-        "type": "number",
-        "description": "Request timeout in milliseconds. Default: 300000 (5 minutes)."
-      },
-      "containerName": {
-        "type": "string",
-        "description": "Default WSInsight Docker container name. Default: clawsight-mcp."
-      },
-      "sptxMcpUrl": {
-        "type": "string",
-        "description": "sptxinsight MCP endpoint URL. Default: http://127.0.0.1:8766/mcp"
-      },
-      "sptxTimeoutMs": {
-        "type": "number",
-        "description": "sptxinsight request timeout in milliseconds. Default: 300000 (5 minutes)."
-      },
-      "sptxContainerName": {
-        "type": "string",
-        "description": "Default sptxinsight Docker container name. Default: clawsight-sptx-mcp."
-      }
-    }
+    "properties": {},
+    "description": "ClawSight reads per-engine defaults from process.env (see description). Plugin config is reserved for future host-level overrides; no fields are required."
   }
 }

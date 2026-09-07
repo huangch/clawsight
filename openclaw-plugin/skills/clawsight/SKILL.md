@@ -1,382 +1,162 @@
 ---
 name: clawsight
-description: Operate WSInsight and sptxinsight through Docker-hosted MCP servers — start containers, discover tools, run pipelines, and poll jobs
+description: Operate wsinsight / sptxinsight / hplot / kurtorank / wsitrain through Docker-hosted MCP servers — start containers, discover tools, run analyses, and poll async jobs.
 ---
 
 # ClawSight Skill (OpenClaw)
 
-ClawSight gives you control of two engines by starting their Docker containers
-and proxying calls to the MCP server inside each one:
-
-| Prefix | Engine | Image CLI | Default port | Purpose |
-| ------ | ------ | --------- | ------------ | ------- |
-| `wsinsight_` | WSInsight | `wsinsight-mcp` | 8765 | Whole-slide-image pathology: tissue segmentation, patching, GPU cell inference, neighborhood composition, export |
-| `sptx_` | sptxinsight | `sptxinsight-mcp` | 8766 | Spatial transcriptomics: AnnData ingest, cell typing, niche discovery, H-Plot, ligand-receptor scoring |
-
-Both families have the identical shape. Everything below that says
-`<prefix>` applies to `wsinsight` and `sptx` alike.
-
----
-
-## 1. Lifecycle
+ClawSight is **engine-agnostic**: every supported backend (currently five) is
+described by one row in `openclaw-plugin/src/engines.ts`. Each engine exposes
+the same five tools:
 
 ```
-<prefix>_start_docker   →   <prefix>_connect   →   <prefix>_list_tools
-                                                          ↓
-                                              <prefix>_<pipeline tool>
-                                                          ↓
-                                              <prefix>_job_status (if async)
-                                                          ↓
-                                              <prefix>_stop_docker
+<engine>_start         start the Docker container + MCP server
+<engine>_stop          stop and remove the container
+<engine>_status        container health + how many tools are exposed
+<engine>_list_tools    live tool catalog (pass `tool=` for one tool's full schema)
+<engine>_call          invoke any tool the container exposes
 ```
 
+Adding a new engine means adding a row in `engines.ts` (image, port, GPU
+flag, summary). Neither this skill nor `index.ts` needs to change.
+
+## Engines
+
+| Prefix | Engine | Image | Default port | GPU |
+| ------ | ------ | ----- | ------------ | --- |
+| `wsinsight_` | Whole-slide-image pathology pipeline | `huangchtw/wsinsight` | 8765 | yes |
+| `sptxinsight_` | Spatial transcriptomics (AnnData in, micron coords) | `huangchtw/sptxinsight` | 8766 | yes |
+| `hplot_` | H-Plot stats/plotting core (CPU only) | `huangchtw/hplot` | 8767 | no |
+| `kurtorank_` | Unsupervised subtype annotation + marker ranking | `huangchtw/kurtorank` | 8768 | no |
+| `wsitrain_` | Headless end-to-end training of WSInsight CellViT heads | `huangchtw/wsitrain` | 8769 | yes |
+
+Everything below that says `<engine>` applies to **all five** prefixes.
+
+## Recommended lifecycle
+
 ```
-1. wsinsight_start_docker({ "data_dir": "/path/to/slides", "gpu_ids": "0" })
-2. # wait ~5 seconds
-3. wsinsight_connect({})
-4. wsinsight_list_tools({})           ← discover exact parameter names
-5. wsinsight_run({ "arguments": { "wsi_dir": "images",
-                                  "results_dir": "results",
-                                  "model": "CellViT-SAM-H-x40" } })
-6. wsinsight_job_status({ "job_id": "<id>" })   ← poll until terminal
-7. wsinsight_stop_docker({})          ← clean up when finished
+1. <engine>_start   ({ data_dir: "...", ... })
+2. <engine>_status  ({})              ← confirm container is up
+3. <engine>_list_tools({})            ← discover exact parameter names
+4. <engine>_call({ tool: "<name>", arguments: { ... } })
+5. (long-running tool?) <engine>_call({ tool: "job_status", arguments: { job_id: "..." } })   ← poll until terminal
+6. <engine>_stop    ({})
 ```
 
----
+`list_tools` and `call` are the only two tools you usually need after the
+container is up. `start` and `stop` own container lifecycle. The actual
+pipeline commands (`run`, `infer`, `screen`, `loci`, …) live **inside the
+container's MCP server** and are discovered at runtime — see step 3.
 
-## 2. Tool Reference
+## Tool reference
 
-### 2.1 Container lifecycle
+### `<engine>_start`
 
-**`<prefix>_start_docker`** — start the container and run its MCP server
-inside. Replaces any container of the same name.
+Start the Docker container and its MCP server, then discover the tools it
+exposes. Replaces any container with the same name.
 
 | Parameter | Type | Required | Default | Description |
 | --------- | ---- | -------- | ------- | ----------- |
-| `data_dir` | string | **yes** | — | Host directory mounted at `/workspace`. |
-| `gpu_ids` | string | no | all GPUs | GPU ids, e.g. `"0,1"`. |
-| `mcp_port` | number | no | 8765 / 8766 | Host and container port. |
-| `container_name` | string | no | per-engine | Container name. |
-| `max_concurrent` | number | no | server default | Cap on simultaneous jobs. |
-| `experimental` | boolean | no | off | Expose the experimental sub-commands. |
+| `data_dir` | string | **yes** | — | Host directory mounted at `/workspace`. All inputs and outputs live under it. |
+| `port` | integer | no | engine default | Host/container port for the MCP server. |
+| `container_name` | string | no | `clawsight-<engine>` | Container name. |
+| `max_concurrent` | integer | no | server default | Cap on simultaneous jobs the server will run. |
+| `gpu_ids` | string (GPU engines only) | no | `all` | Comma-separated GPU ids to expose, e.g. `"0,1"`. |
+| `experimental` | boolean (experimental engines only) | no | engine default | Expose experimental sub-commands as tools. |
 
-The container is started with `--shm-size=32g` and `--init`; the port is
-published on the host.
+Per-engine defaults can be overridden via env vars
+(`CLAWSIGHT_<ENGINE>_IMAGE`, `_PORT`, `_CONTAINER`, `_MCP_URL`, `_TIMEOUT_MS`;
+upper-cased, dashes → underscores).
 
-**`<prefix>_stop_docker`** — stop and remove the container.
+### `<engine>_stop`
 
-| Parameter | Type | Required | Default |
-| --------- | ---- | -------- | ------- |
-| `container_name` | string | no | per-engine |
-
-### 2.2 Connection and discovery
-
-**`<prefix>_connect`** — perform the MCP initialize handshake and verify the
-server is reachable. Returns server name, version, and protocol version.
+Stop and remove the container.
 
 | Parameter | Type | Required | Default | Description |
 | --------- | ---- | -------- | ------- | ----------- |
-| `mcp_url` | string | no | `http://127.0.0.1:<port>/mcp` | Override the endpoint for this and all future calls. |
-| `timeout_ms` | number | no | `300000` | Request timeout. |
+| `container_name` | string | no | `clawsight-<engine>` | Container name to stop. |
 
-Use `mcp_url` to attach to a server that is already running outside Docker —
-then skip `_start_docker` entirely.
+### `<engine>_status`
 
-**`<prefix>_server_info`** — current URL, container name, and connection state.
+Report whether the container is running, its MCP URL, and how many tools it
+currently exposes.
+
 No parameters.
 
-**`<prefix>_list_tools`** — every tool the running server exposes, with
-parameter names, types, and which are required. No parameters.
+### `<engine>_list_tools`
 
-**Always call `_list_tools` before a pipeline tool.** The plugin does not
-hard-code the engine's schema; the server is the authority.
+List the tools the running server exposes, with a short description of each.
+Pass `tool="<name>"` to get that tool's full JSON input schema.
 
-### 2.3 WSInsight pipeline tools
+| Parameter | Type | Required | Default | Description |
+| --------- | ---- | -------- | ------- | ----------- |
+| `tool` | string | no | — | Return the full schema for this one tool instead of the summary list. |
 
-Each takes a single `arguments` object.
+Tool catalogs are **discovered at run time** — never hard-coded in this
+plugin. Whatever the installed image supports is what the agent can call, so
+a new CLI sub-command appears without touching ClawSight.
 
-| Tool | Purpose | Blocks? |
-| ---- | ------- | ------- |
-| `wsinsight_run` | Full end-to-end pipeline: segmentation → patching → inference → composition → export | async → `job_id` |
-| `wsinsight_patch` | Segment tissue and extract patches into an HDF5 cache | async → `job_id` |
-| `wsinsight_infer` | GPU model inference on pre-extracted patches | async → `job_id` |
-| `wsinsight_ncomp` | Per-cell neighborhood composition on a Delaunay graph | async → `job_id` |
-| `wsinsight_export` | Export results to GeoJSON / OME-CSV | sync |
-| `wsinsight_reg` | Register (spatially align) two WSI regions | sync |
-| `wsinsight_agg` | **Experimental**: aggregate cell-type neighbourhoods (e.g. TLS) | sync |
+### `<engine>_call`
 
-### 2.4 sptxinsight pipeline tools
+Invoke any tool exposed by the running server. Use `<engine>_list_tools`
+first to discover tool names and their parameters. Long-running tools return
+a `job_id`; poll it by calling `<engine>_call` again with
+`tool="job_status"` (engine-specific job polling tools are also discovered).
 
-| Tool | Purpose | Blocks? |
-| ---- | ------- | ------- |
-| `sptx_run` | Ingest samples and compute aggregated H-Plot outputs | async → `job_id` |
-| `sptx_ingest` | Read samples and write the per-sample CSV contract | async → `job_id` |
-| `sptx_annotate` | KurtoRank cell-type annotation | async → `job_id` |
-| `sptx_niche` | Discover niches across ingested samples | async → `job_id` |
-| `sptx_export` | Print the path to the aggregated H-Plot table | sync |
-| `sptx_niche_profile` | Summarise each niche's composition and markers | sync |
-| `sptx_hplot` | **Experimental**: compute H-Plot layer curves | async → `job_id` |
-| `sptx_hplot_finalize` | **Experimental**: aggregate per-sample H-Plot CSVs | sync |
-| `sptx_cci` | **Experimental**: ligand-receptor interaction scoring | async → `job_id` |
+| Parameter | Type | Required | Default | Description |
+| --------- | ---- | -------- | ------- | ----------- |
+| `tool` | string | **yes** | — | Tool name as reported by `<engine>_list_tools`. |
+| `arguments` | object | no | `{}` | Arguments object for that tool, matching its input schema. May be a JSON string or an object. |
 
-`sptx_ingest` may not exist on a current image — the `ingest` sub-command was
-unregistered upstream in favour of `wsinsight import --platform xenium-h5ad`.
-`sptx_list_tools` is the check: if `ingest` is absent, use `sptx_run`, which
-ingests internally.
+## Examples
 
-### 2.5 Job management
-
-| Tool | Purpose |
-| ---- | ------- |
-| `<prefix>_job_status` | State of one job. Takes `job_id`. Poll until terminal. |
-| `<prefix>_job_logs` | Stream a job's output. Takes `job_id`, optional `since_line` / `max_lines`. |
-| `<prefix>_cancel_job` | Stop a running job. Takes `job_id`. |
-| `<prefix>_list_jobs` | Every job the server knows about. |
-
----
-
-## 3. Rules
-
-- **File paths inside `arguments` are relative to `/workspace`** — that is the
-  `data_dir` you passed to `<prefix>_start_docker`. Passing host paths fails.
-- **Argument names are the engine's CLI parameter names in snake_case**
-  (`wsi_dir`, `results_dir`, `batch_size`, `num_workers`,
-  `region_inference_dir`, `export_geojson`). No positional arguments are
-  supported.
-- **Poll async tools to a terminal state**; do not infer completion from
-  elapsed time. On failure, read `<prefix>_job_logs` **before** retrying, and
-  never re-issue a job while a prior one is still running.
-- **On a connection error, call `<prefix>_connect`** to re-establish the
-  session — the server may have restarted or the container may have cycled.
-- **Experimental tools** appear in `_list_tools` only when the container was
-  started with `"experimental": true`, which sets the engine's `*_EXPERIMENTAL`
-  env var and launches the server with `--experimental`.
-- **Outputs may be root-owned.** This plugin does not forward your uid/gid to
-  the container. If that matters, pre-create the output directory or fix
-  ownership afterwards.
-
-### 3.1 Memory-constrained environments
-
-Containers and shared servers are where DataLoader workers get killed by the
-system OOM killer. If that happens:
-
-- pass `"pin_memory": false`,
-- optionally reduce `"num_workers": 2`.
-
-`batch_size` is **auto-calibrated from GPU VRAM by default** — omit it unless
-you need to cap memory use. WSInsight also auto-recovers from worker death by
-disabling `pin_memory` and reducing `num_workers` on retry.
-
-### 3.2 Morphology-driven niche runs
-
-For `wsinsight` niche work, pass `niche_hoptimus: true`. Omit
-`niche_hoptimus_pca_dim` to use raw H-Optimus vectors, or set it to reduce
-dimensions with PCA. Pass `niche_hoptimus_only: true` (together with
-`niche_hoptimus`) to skip k-hop composition features and cluster on H-Optimus
-features only. `niche_hoptimus_batch_size` is auto-calibrated from GPU VRAM;
-set it explicitly only to cap memory use, for example when sharing the GPU.
-
----
-
-## 4. Choosing a Model (`wsinsight`)
-
-Pass one of the names below as the `model` argument. The MCP server resolves
-them from the bundled zoo registry inside the container; **no network access is
-required**, which matters because the public model hub is often unreachable.
-
-**Cell-level (object-based) models** — each cell becomes one row in
-`model-outputs-csv/<slide>.csv`:
-
-- `CellViT-256-x20`, `CellViT-256-x40`, `CellViT-256-x40-AMP`
-- `CellViT-SAM-H-x20`, `CellViT-SAM-H-x40`, `CellViT-SAM-H-x40-AMP`
-- `CellViT-Virchow-x40-AMP`
-- `10xGenomics-BRCA-CellViT-SAM-H-x40`, `10xGenomics-CRC-CellViT-SAM-H-x40`
-- `hovernet_fast_pannuke`
-- `hne_cell_classification`
-
-**Region / patch-level models** — each patch becomes one row (useful as
-`region_inference_dir`, or for `region_prob_*` columns):
-
-- `breast-tumor-resnet34.tcga-brca`
-- `lung-tumor-resnet34.tcga-luad`
-- `pancreas-tumor-preactresnet34.tcga-paad`
-- `prostate-tumor-resnet34.tcga-prad`
-- `pancancer-lymphocytes-inceptionv4.tcga`
-- `lymphnodes-tiatoolbox-resnet50.patchcamelyon`
-- `colorectal-tiatoolbox-resnet50.kather100k`
-- `colorectal-resnet34.penn`
-
-**Selection rules:**
-
-- The `x20` / `x40` suffix on CellViT models **must match the slide
-  magnification**. TCGA diagnostic SVS slides are typically 40x. A mismatch
-  produces an empty or nonsense output table rather than an error.
-- `model` is mutually exclusive with the `config` + `model_path` pair and with
-  `zoo_model_dir` (a folder holding `config.json` + `torchscript_model.pt`).
-  For ad hoc weights, pass `zoo_model_dir` instead of `model`.
-
----
-
-## 5. Output Data Formats
-
-Everything lands under the `results_dir` you passed (relative to `/workspace`):
+### Run a WSInsight patch + infer pipeline
 
 ```
-<results_dir>/
-  masks/<slide>.jpg                  Tissue segmentation thumbnails
-  patches/<slide>.h5                 Patch coords (and optional images)
-  model-outputs-csv/<slide>.csv      Per-cell (or per-patch) inference table
-  ncomp-outputs-csv/<slide>.csv      Per-cell neighborhood composition
-  graphs/<slide>.h5                  Cached Delaunay graph
-  export-csv/<slide>.csv             Merged per-cell table (model + ncomp)
-  export-geojson/<slide>.geojson     QuPath-compatible GeoJSON
-  export-omecsv/<slide>.ome.csv.gz   QuPath / OMERO compatible OME-CSV
-  patch_metadata_<ts>.json           Patch-stage configuration
-  infer_metadata_<ts>.json           Inference-stage configuration
+1. wsinsight_start({ data_dir: "/data/wsi", gpu_ids: "0" })
+2. wsinsight_status({})                                        ← "running"
+3. wsinsight_list_tools({})                                   ← returns ~14 tools
+4. wsinsight_call({ tool: "run", arguments: {
+                  wsi_dir: "raw", results_dir: "results",
+                  model: "CellViT-SAM-H-x40"
+                } })                                          ← returns job_id
+5. wsinsight_call({ tool: "job_status", arguments: { job_id: "<id>" } })
+   # repeat step 5 until status === "succeeded" or "failed"
+6. wsinsight_stop({})
 ```
 
-### `model-outputs-csv/<slide>.csv`
+### H-Plot a downstream result
 
-- `minx`, `miny`, `width`, `height` — bounding box in level-0 pixels.
-- `prob_<class>` — one float column per model class. Class names come from the
-  model's bundled `config.json` (e.g. `prob_tumor`, `prob_lymphocyte`).
-- *(object-based models only)* `center_x`, `center_y` — cell centre in level-0
-  pixels.
-- *(when `region_inference_dir` is supplied)* `region_minx`, `region_miny`,
-  `region_width`, `region_height`, `region_prob_<class>` — the enclosing region
-  patch and its class probabilities. Argmax of `region_prob_*` gives a per-cell
-  region label (tumor vs non-tumor).
-
-### `ncomp-outputs-csv/<slide>.csv`
-
-- `center_x`, `center_y` — cell centre.
-- `cell_type` — argmax over `prob_*` from the model output.
-- `neighborhood_size` — number of k-hop neighbours, excluding self.
-- `neighborhood_<type>_count` / `neighborhood_<type>_prop` — per-class counts
-  and proportions across the k-hop neighbourhood. `_prop` is `NaN` when
-  `neighborhood_size == 0`.
-
-### `export-csv/<slide>.csv`
-
-Left join of `model-outputs-csv/` with `ncomp-outputs-csv/` on
-`(center_x, center_y)`; the two sources' columns combined.
-
-### `patches/<slide>.h5`
-
-- `/coords` — `(N, 2) int32`, top-left `[x, y]` of each patch at level 0.
-  Attributes: `patch_size`, `patch_level`, `patch_spacing_um_px`, optional
-  `tile_dim`.
-- `/slide.attrs` — `slide_path`, `slide_mpp`, `slide_width`, `slide_height`.
-- `/images` — `(N, patch_size, patch_size, 3) uint8`, only when the run used
-  `cache_image_patches: true`.
-- `/polygons/{coords, offsets}` — ragged polygon vertices, when polygons were
-  supplied.
-
-### `graphs/<slide>.h5` (produced by `ncomp`)
-
-- `cell_centers` — `(N, 2) int32`.
-- `simplices` — `(M, 3) int32` Delaunay triangle vertex indices.
-- `edges_source`, `edges_target`, `edges_length` — unpruned undirected edges,
-  length in pixels.
-- `file.attrs` — `num_cells`, `mpp`, `centers_hash` (SHA-256 of
-  `cell_centers.tobytes()`, used for cache invalidation).
-
-Edges are stored **unpruned**; pruning to `ncomp_max_neighbor_distance` happens
-at read time.
-
-### `export-geojson/<slide>.geojson`
-
-A standard GeoJSON `FeatureCollection`. Each feature:
-
-```json
-{
-  "type": "Feature",
-  "id": "<uuid4>",
-  "geometry": {"type": "Polygon", "coordinates": [[[x1,y1], ...]]},
-  "properties": {
-    "isLocked": true,
-    "objectType": "detection",
-    "classification": {"name": "prob_<winner>", "color": [R,G,B]},
-    "measurements": {"prob_tumor": 0.92, "neighborhood_tumor_prop": 0.7}
-  }
-}
+```
+1. hplot_start({ data_dir: "/data/wsi/results", port: 8767 })
+2. hplot_list_tools({})                                        ← plot, test, screen, gam, schema
+3. hplot_call({ tool: "plot",   arguments: { ... } })
+4. hplot_call({ tool: "screen", arguments: { ... } })        ← long-running → job_id
+5. hplot_call({ tool: "job_status", arguments: { job_id: "..." } })
+6. hplot_stop({})
 ```
 
-`measurements` includes every numeric column except the geometry columns
-(`minx`, `miny`, `width`, `height`, `center_x`, `center_y`).
+## Why a plugin / MCP and not just `docker run wsinsight …`?
 
-### `export-omecsv/<slide>.ome.csv.gz`
+The engines all expose a CLI, and the agent's `run_command` works fine for
+quick one-shots. ClawSight earns its keep when:
 
-Gzip-compressed CSV:
+- The command is **long-running** (30 min+ pipelines). The handler returns a
+  human-readable summary + `job_id` immediately and lets you poll — no
+  `tmux + log scraping` ceremony.
+- The **container lifecycle needs to be portable across hosts and Docker
+  versions**: GPU mapping, port conflict avoidance, `HOST_UID/HOST_GID`
+  remapping, image pinning defaults.
+- You need a **consistent shape** across five engines — one `start`/`stop`/
+  `status`/`list_tools`/`call` template beats re-learning each engine's CLI.
 
-- `object` — row index; `secondary_object` — same value.
-- `polygon` — WKT polygon string.
-- `objectType` — `detection` / `tile` / `annotation`, chosen via the
-  `object_type` argument to `wsinsight_export`.
-- `classification` — argmax class name with the `prob_` prefix stripped.
-- All numeric non-geometry columns. `NaN` is written as the literal string
-  `"NaN"`.
+When you just want to debug a single command end-to-end, `run_command`
+straight to the CLI is fine.
 
-### Reading results from agent code
+## See also
 
-```python
-import pandas as pd
-df = pd.read_csv("results/model-outputs-csv/SLIDE.csv")
-print(df.columns.tolist())   # incl. prob_<class> for every model class
-```
-
----
-
-## 6. Troubleshooting
-
-| Symptom | Cause | Fix |
-| ------- | ----- | --- |
-| "Connection failed … Is the container running?" | Server unreachable | `<prefix>_server_info`, then `_start_docker`, then `_connect` |
-| `_connect` fails right after `_start_docker` | Server still booting | Wait ~5 s and retry |
-| `'data_dir' is required` | Missing parameter | Pass an existing **host** directory |
-| Path not found inside the container | Host path passed in `arguments` | Rewrite relative to `/workspace` |
-| Expected tool missing from `_list_tools` | It is experimental, or absent from the image | Restart with `"experimental": true`; else check the image tag |
-| `sptx_ingest` fails as unknown | `ingest` was unregistered upstream | Use `sptx_run`, which ingests internally |
-| Empty / nonsense inference table | Model magnification does not match the slide | Match the `x20` / `x40` suffix |
-| DataLoader worker killed | System OOM killer | `"pin_memory": false`, `"num_workers": 2` |
-| Outputs owned by root | This plugin does not forward uid/gid | Pre-create the output dir, or fix ownership afterwards |
-| Wrong parameter name | Guessed instead of discovered | `<prefix>_list_tools` first |
-| `model` rejected with `config` / `zoo_model_dir` | They are mutually exclusive | Pick one weight source |
-
----
-
-## 7. Agent Decision Guide
-
-```text
-Which engine?
-├─ whole-slide images (.svs/.ndpi/.tif)     → wsinsight_*
-└─ AnnData / Xenium spatial transcriptomics → sptx_*
-
-Then always:
-1. <prefix>_start_docker  — data_dir = the host dir holding the data
-2. wait ~5 s
-3. <prefix>_connect
-4. <prefix>_list_tools    — read the real parameter names
-5. call the pipeline tool — paths relative to /workspace
-6. <prefix>_job_status    — poll to a terminal state if a job_id came back
-7. <prefix>_stop_docker
-
-WSInsight, one-shot vs staged:
-├─ one call, whole pipeline → wsinsight_run
-└─ inspect between stages   → wsinsight_patch → wsinsight_infer
-                              → wsinsight_ncomp → wsinsight_export
-```
-
-### Key constraints for agents
-
-1. **Start, then connect, then list tools.** Skipping any step makes the rest
-   fail or forces you to guess.
-2. **Never guess parameter names.** `_list_tools` is the authority; the plugin
-   does not hard-code the schema.
-3. **All paths in `arguments` are `/workspace`-relative.**
-4. **Match the model magnification to the slide.** A mismatch fails silently
-   with a useless table, not with an error.
-5. **Poll to a terminal state, and read `job_logs` before any retry.**
-6. **Do not run a second job while one is in flight** unless you raised
-   `max_concurrent`.
-7. **Stop containers you started.**
+- `hermes-plugin/SKILL.md` — Hermes Agent runtime counterpart (the surface is
+  identical; this file and the Hermes one MUST stay in sync on tool names,
+  parameter vocabulary, and lifecycle guidance).
+- `openclaw-plugin/src/engines.ts` — the engine registry that drives both
+  schema and handler generation.
